@@ -22,7 +22,7 @@ def get_all_image_paths(directory):
     Returns:
     list: A list of paths to image files found within the directory and its subdirectories.
     """
-    image_extensions = {'.jpg', '.jpeg', '.png'}  # Use a set for faster membership testing
+    image_extensions = {'.jpg', '.jpeg', '.png'}
     image_paths = []
 
     def scan_directory(dir_path):
@@ -41,8 +41,20 @@ def read_json(path):
     print(f'Reading JSON file from {path}')
     return json.loads(path.read_text())
 
+def value_counts_both(inps):
+    if not isinstance(inps,pd.Series):
+        inps = pd.Series(inps)
+    return pd.DataFrame({
+        'count': inps.value_counts(),
+        'percentage': inps.value_counts(normalize=True)
+        })
+
+
 def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'ExtractedSpecies',max_workers=2):
-    
+    # For this function to work, there must be a relative path of each of "absolute path" to "extracted_dir"
+    # In another word, "extracted_dir" must be within each of "absolute_path"
+
+
     def copy_file(file_path, destination_dir,keep_structure=True):
         file_path = Path(file_path)
         destination_dir = Path(destination_dir)
@@ -52,8 +64,6 @@ def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'Extr
             destination_dir.mkdir(parents=True,exist_ok=True)
         shutil.copy(file_path, destination_dir)
     
-    # For this function to work, there must be a relative path of each of "absolute path" to "extracted_dir"
-    # In another word, "extracted_dir" must be within each of "absolute_path"
     assert len(absolute_paths)==len(species)
     
     extracted_dir = Path(extracted_dir)/(extracted_folder.strip())
