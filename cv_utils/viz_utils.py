@@ -53,7 +53,7 @@ def plot_classification_report(report_df_short,rotation=85,figsize=(10,8),fontsi
     if 'recall' in metrics:
         ax2.plot(species, recall, color='tab:purple', marker='^', linestyle='-.', linewidth=2, label='Recall')
     ax2.tick_params(axis='y', labelcolor='black')
-    ax2.set_ylim(0, max(f1_score) * 1.1)  # Set y-axis to start at 0
+    ax2.set_ylim(0, 1.1)  # Set y-axis to start at 0
 
     fig.suptitle('Support And Performance By Species')
     fig.tight_layout()
