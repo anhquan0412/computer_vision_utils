@@ -1,12 +1,6 @@
-import numpy as np
 import pandas as pd
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 import os
-from functools import partial
-import shutil
-from tqdm import tqdm
-import time
 import json
 
 def read_excel(path,sheet_int=0):
@@ -50,39 +44,3 @@ def value_counts_both(inps):
         })
 
 
-def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'ExtractedSpecies',max_workers=2):
-    # For this function to work, there must be a relative path of each of "absolute path" to "extracted_dir"
-    # In another word, "extracted_dir" must be within each of "absolute_path"
-
-
-    def copy_file(file_path, destination_dir,keep_structure=True):
-        file_path = Path(file_path)
-        destination_dir = Path(destination_dir)
-        if keep_structure:
-            common_dir = file_path.relative_to(Path(*destination_dir.parts[:-2]))
-            destination_dir = (destination_dir/common_dir).parent
-            destination_dir.mkdir(parents=True,exist_ok=True)
-        shutil.copy(file_path, destination_dir)
-    
-    assert len(absolute_paths)==len(species)
-    
-    extracted_dir = Path(extracted_dir)/(extracted_folder.strip())
-    extracted_dir.mkdir(exist_ok=True)
-    
-    for spe in set(species):
-        start_time = time.time()  # Start time
-        print(f'Copying images for species: {spe}')
-        species_dir = extracted_dir / spe.replace('/', '-')
-        species_dir.mkdir(exist_ok=True)
-        
-        copy_to_dest_func = partial(copy_file, destination_dir=species_dir)
-    
-        start_time = time.time()  # Start time
-        paths_filtered = [p for p,s in zip(absolute_paths,species) if s==spe]
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            list(tqdm(executor.map(copy_to_dest_func, paths_filtered), total=len(paths_filtered)))
-        
-        end_time = time.time()  # End time
-        print(f'===> Done copying {len(paths_filtered)} images. Time taken: {end_time - start_time:.2f} seconds.\n')
-
-    print('Done copying all images.')

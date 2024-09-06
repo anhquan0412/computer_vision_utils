@@ -1,10 +1,9 @@
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import math
 import pandas as pd
 import numpy as np
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report
-
+from .img_utils import load_local_image, crop_image
 
 def clas_report_compact(y_true,y_pred,label_names=None):
     report = classification_report(y_true, y_pred, 
@@ -75,13 +74,25 @@ def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12)):
     plt.show()
 
 
-def visualize_images(image_paths, labels=None, figsize=(10, 10), fontsize=8):
+def visualize_images(image_paths, labels=None, bboxes=None, figsize=(10, 10), fontsize=8, square_crop=False):
     # Determine grid size based on the number of images
+    if isinstance(image_paths,(pd.Series,np.ndarray)):
+        image_paths = image_paths.tolist()
     num_images = len(image_paths)
     grid_size = math.ceil(math.sqrt(num_images))
 
-    if labels is not None and not isinstance(labels,list):
-        labels = [labels for _ in range(num_images)]
+    if labels is not None:
+        if not isinstance(labels, (list,pd.Series,np.ndarray)):
+            labels = [labels for _ in range(num_images)]
+        elif isinstance(labels,(pd.Series,np.ndarray)):
+            labels = labels.tolist()
+
+    if bboxes is not None: 
+        if len(bboxes) != num_images:
+            raise ValueError("Length of bboxes must match the length of image_paths")
+        if isinstance(bboxes,(pd.Series,np.ndarray)):
+            bboxes = bboxes.tolist()
+    
     # Create the plot with specified figure size
     fig, axs = plt.subplots(grid_size, grid_size, figsize=figsize)
     
@@ -93,8 +104,13 @@ def visualize_images(image_paths, labels=None, figsize=(10, 10), fontsize=8):
     
     # Iterate through the images and plot them
     for i in range(num_images):
-        img = mpimg.imread(image_paths[i])
-        axs[i].imshow(img)
+        # img = mpimg.imread(image_paths[i])
+        img = load_local_image(image_paths[i])
+        if bboxes is not None:
+            bbox = bboxes[i]
+            img = crop_image(img,bbox,square_crop)
+        
+        axs[i].imshow(np.array(img))
         if labels is not None:
             axs[i].set_title(f'{labels[i]}', fontsize=fontsize)
         axs[i].axis('off')
