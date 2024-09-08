@@ -55,6 +55,37 @@ def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'Extr
 
 
 def mdv5_json_to_df(json_file):
+    # Example of mdv5 json file:
+    # {
+    #     "info": {
+    #         "classifier": "classifier_v5b",
+    #         "classification_completion_time": "2024-06-15T09:14:54.294909Z",
+    #         "format_version": "1.1"
+    #     },
+    #     "detection_categories": {
+    #         "1": "animal",
+    #         "2": "person",
+    #         "3": "vehicle"
+    #     },
+    #     "images": [
+    #         {
+    #             "file": "CPW_Files_/june_24/Charnley River - Artesian Range/Petrogale burbidgei - Monjon/Pre-Grant Extraction_Cha_P burbidgei/2019-12-17 19-13-17 M 1_5.JPG",
+    #             "max_detection_conf": 0.919,
+    #             "detections": [
+    #                 {
+    #                     "category": "1",
+    #                     "conf": 0.919,
+    #                     "bbox": [
+    #                         0,
+    #                         0.3984,
+    #                         0.1455,
+    #                         0.1848
+    #                     ]
+    #                 }
+    #             ]
+    #         },
+    #     ]
+    # }
     results=[]
     for img in json_file['images']:
         img_file = img['file']
