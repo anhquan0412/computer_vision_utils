@@ -1,3 +1,4 @@
+import ast
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -8,6 +9,8 @@ import time
 
 from .viz_utils import visualize_images
 from .common_utils import value_counts_both
+
+
 
 def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'ExtractedSpecies',max_workers=2):
     # For this function to work, there must be a relative path of each of "absolute path" to "extracted_dir"
@@ -61,17 +64,35 @@ def mdv5_json_to_df(json_file):
             for _d in img['detections']:
                 results.append([img_file,_d['category'],_d['conf'],_d['bbox']])
 
-    return pd.DataFrame(results,columns=['file','detection_category','detection_conf','detection_bbox'])
+    df =  pd.DataFrame(results,columns=['file','detection_category','detection_conf','detection_bbox'])
+    df['file'] = df['file'].apply(lambda x: Path(x).as_posix())
+
+    # drop duplicates
+    # it's okay to convert to string, since the float values are already rounded by mdv5
+    df['detection_bbox'] = df['detection_bbox'].astype(str)
+    df = df.drop_duplicates().reset_index(drop=True)
+    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: ast.literal_eval(x))
+
+    # get bbox count and bbox rank
+    df = df[~df.detection_conf.isna()].reset_index(drop=True)
+    _tmp = df.groupby('file').file.count()
+    _tmp = _tmp.reset_index()
+    _tmp.columns=['file','bbox_count']
+
+    df = pd.merge(df,_tmp)
+    df['bbox_rank'] = df.groupby('file').detection_conf.rank(method='dense',ascending=False)
+    return df
 
 
-def viz_by_detection_threshold(df,lower,upper=1.01,label=None,figsize=(12,12),fontsize=6):
+
+def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsize=(12,12),fontsize=6):
     _tmp = df[(df.detection_conf>=lower) & (df.detection_conf<upper)]
     if label:
         _tmp = _tmp[_tmp.label.str.contains(label)]
     print(_tmp.shape[0])
     if 'label' in _tmp.columns:
         print(value_counts_both(_tmp.label).head(10))
-    if _tmp.shape[0]>36: _tmp = _tmp.sample(36)
+    if _tmp.shape[0]>num_imgs: _tmp = _tmp.sample(num_imgs)
     to_show = _tmp.detection_conf.round(2).astype(str)
     if 'label' in _tmp.columns:
         to_show+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
