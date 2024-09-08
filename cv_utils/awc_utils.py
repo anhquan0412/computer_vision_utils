@@ -67,12 +67,12 @@ def mdv5_json_to_df(json_file):
 def viz_by_detection_threshold(df,lower,upper=1.01,label=None,figsize=(12,12),fontsize=6):
     _tmp = df[(df.detection_conf>=lower) & (df.detection_conf<upper)]
     if label:
-        _tmp = _tmp.label.str.contains(label)
+        _tmp = _tmp[_tmp.label.str.contains(label)]
     print(_tmp.shape[0])
     if 'label' in _tmp.columns:
         print(value_counts_both(_tmp.label).head(10))
     if _tmp.shape[0]>36: _tmp = _tmp.sample(36)
     to_show = _tmp.detection_conf.round(2).astype(str)
     if 'label' in _tmp.columns:
-        _tmp+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
+        to_show+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
     visualize_images(_tmp.abs_path,to_show,_tmp.detection_bbox,figsize=figsize,fontsize=fontsize)
