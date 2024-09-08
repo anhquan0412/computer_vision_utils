@@ -75,7 +75,7 @@ def mdv5_json_to_df(json_file):
 
     # get bbox count and bbox rank
     df = df[~df.detection_conf.isna()].reset_index(drop=True)
-    _tmp = df.groupby('file').file.count()
+    _tmp = df.groupby('file').detection_category.count()
     _tmp = _tmp.reset_index()
     _tmp.columns=['file','bbox_count']
 
