@@ -69,18 +69,18 @@ def mdv5_json_to_df(json_file):
     #     },
     #     "images": [
     #         {
-    #             "file": "CPW_Files_/june_24/Charnley River - Artesian Range/Petrogale burbidgei - Monjon/Pre-Grant Extraction_Cha_P burbidgei/2019-12-17 19-13-17 M 1_5.JPG",
+    #             "file": "CPW_Files_/june_24/2019-12-17 19-13-17 M 1_5.JPG",
     #             "max_detection_conf": 0.919,
     #             "detections": [
     #                 {
     #                     "category": "1",
     #                     "conf": 0.919,
     #                     "bbox": [
-    #                         0,
-    #                         0.3984,
-    #                         0.1455,
-    #                         0.1848
-    #                     ]
+    #                               0,
+    #                               0.3984,
+    #                               0.1455,
+    #                               0.1848
+    #                             ]
     #                 }
     #             ]
     #         },
