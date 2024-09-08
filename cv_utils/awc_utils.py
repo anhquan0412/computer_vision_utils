@@ -6,6 +6,9 @@ import shutil
 from tqdm import tqdm
 import time
 
+from .viz_utils import visualize_images
+from .common_utils import value_counts_both
+
 def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'ExtractedSpecies',max_workers=2):
     # For this function to work, there must be a relative path of each of "absolute path" to "extracted_dir"
     # In another word, "extracted_dir" must be within each of "absolute_path"
@@ -14,8 +17,6 @@ def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'Extr
     #    absolute_paths= [Z:/Yampi/CT Images/2. Classified and Completed surveys/202305_YSTA_LowlandRefuge_cameras/Naomis Sites/202305_YSTA_LowlandRefuge/RCNX0016.JPG]
     #    There will be a folder called "ExtractedSpecies" within the "Naomis Sites" folder, and the images will be copied to the respective species folder within "ExtractedSpecies"
     # This is mostly for G's image extraction task 
-
-
 
     def copy_file(file_path, destination_dir,keep_structure=True):
         file_path = Path(file_path)
@@ -62,3 +63,16 @@ def mdv5_json_to_df(json_file):
 
     return pd.DataFrame(results,columns=['file','detection_category','detection_conf','detection_bbox'])
 
+
+def viz_by_detection_threshold(df,lower,upper=1.01,label=None,figsize=(12,12),fontsize=6):
+    _tmp = df[(df.detection_conf>=lower) & (df.detection_conf<upper)]
+    if label:
+        _tmp = _tmp.label.str.contains(label)
+    print(_tmp.shape[0])
+    if 'label' in _tmp.columns:
+        print(value_counts_both(_tmp.label).head(10))
+    if _tmp.shape[0]>36: _tmp = _tmp.sample(36)
+    to_show = _tmp.detection_conf.round(2).astype(str)
+    if 'label' in _tmp.columns:
+        _tmp+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
+    visualize_images(_tmp.abs_path,to_show,_tmp.detection_bbox,figsize=figsize,fontsize=fontsize)
