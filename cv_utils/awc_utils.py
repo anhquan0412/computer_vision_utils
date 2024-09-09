@@ -116,7 +116,7 @@ def mdv5_json_to_df(json_file):
 
 
 
-def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsize=(12,12),fontsize=6):
+def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsize=(12,12),fontsize=6,ascending=False):
     _tmp = df[(df.detection_conf>=lower) & (df.detection_conf<upper)]
     if label:
         _tmp = _tmp[_tmp.label.str.contains(label)]
@@ -124,6 +124,7 @@ def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsiz
     if 'label' in _tmp.columns:
         print(value_counts_both(_tmp.label).head(10))
     if _tmp.shape[0]>num_imgs: _tmp = _tmp.sample(num_imgs)
+    _tmp = _tmp.sort_values('detection_conf',ascending=ascending)
     to_show = _tmp.detection_conf.round(2).astype(str)
     if 'label' in _tmp.columns:
         to_show+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
