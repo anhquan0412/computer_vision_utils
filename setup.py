@@ -7,7 +7,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='cv_utils',
-    version='0.1.2',
+    version='0.1.3',
     packages=find_packages(),
     install_requires=[
         'numpy',
@@ -17,7 +17,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'rotate-images=cv_utils.rotate_images_left:rotate_images_to_portrait',
+            'rotate-images-portrait=cv_utils.rotate_images_portrait:main',
+            'crop-images-from-file=cv_utils.crop_images:main',
         ],
     },
     author='Quan Tran',
