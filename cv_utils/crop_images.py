@@ -143,3 +143,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Example Usage:
+# crop-images-from-file C:\Users\testing.csv D:\image D:\image\cropped --square_crop True --postfix mv5b --max_workers 4 --logdir C:\Users\cropping_logs
