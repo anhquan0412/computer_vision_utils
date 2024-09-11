@@ -102,7 +102,7 @@ def mdv5_json_to_df(json_file):
     # it's okay to convert to string, since the float values are already rounded by mdv5
     df['detection_bbox'] = df['detection_bbox'].astype(str)
     df = df.drop_duplicates().reset_index(drop=True)
-    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: ast.literal_eval(x))
+    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: tuple(ast.literal_eval(x)))
 
     # get bbox count and bbox rank
     df = df[~df.detection_conf.isna()].reset_index(drop=True)
