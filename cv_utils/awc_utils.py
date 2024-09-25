@@ -28,7 +28,8 @@ def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'Extr
             common_dir = file_path.relative_to(Path(*destination_dir.parts[:-2]))
             destination_dir = (destination_dir/common_dir).parent
             destination_dir.mkdir(parents=True,exist_ok=True)
-        shutil.copy(file_path, destination_dir)
+        if not (destination_dir/file_path.name).exists():
+            shutil.copy(file_path, destination_dir)
     
     assert len(absolute_paths)==len(species)
     
