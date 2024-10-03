@@ -4,6 +4,7 @@ from fastai.callback.wandb import *
 import wandb
 import os
 import warnings; warnings.simplefilter('ignore')
+from efficientnet_pytorch import EfficientNet 
 
 def bold_print(txt):
     print(f"{'='*20} {txt.upper()} {'='*20}")  
@@ -33,7 +34,7 @@ def precision_recall_f1_func(label_name,label_idx,mtype="f1"):
 def get_precision_recall_f1_metrics(label_names,mtype="f1"):
     metrics = []
     for i,v in enumerate(label_names):
-        metrics.append(AccumMetric(precision_recall_f1_func(v,i,'precision'),dim_argmax=-1,to_np=True,invert_arg=True))
+        metrics.append(AccumMetric(precision_recall_f1_func(v,i,mtype),dim_argmax=-1,to_np=True,invert_arg=True))
     return metrics
 
 def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
@@ -44,9 +45,11 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
     df_pred['y_pred'] = val_pred_str
     df_pred['y_true'] = val_true_str
     df_pred[label_names] = torch.round(val_probs,decimals=5)
+    print(df_pred.head())
+    print(df_val.head())
     if df_val is not None:
         assert len(df_val)==len(df_pred)
-        df_pred = pd.concat([df_val,df_pred],axis=1)
+        df_pred = pd.concat([df_val.reset_index(drop=True),df_pred],axis=1)
     
     if save_path:
         df_pred.to_csv(save_path,index=False)
@@ -96,7 +99,6 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                               every_epoch=save_every_epoch,
                               fname=(save_directory/save_name),
                               comp=np.greater if 'loss' not in monitor_metric else np.less,
-                              every_epoch=save_every_epoch
                               ),
             CSVLogger(fname=(save_directory/f"{save_name}_training_log.csv"), append=True)
         ]
@@ -128,15 +130,14 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
 
     if save_valid_pred:
-        bold_print('predicting val and test')
-        df_val = df[df['is_val']].copy()
+        bold_print('predicting validation set')
+        df_val = df[df['is_val']==True].copy()
         save_path = (save_directory/f'{save_name}_val_pred.csv')
         _ = fastai_predict_val(learn,label_names,df_val=df_val,save_path=save_path)
     
     if use_wandb:
         wandb.finish();
     return learn
-
 
 
 # example usage
@@ -151,17 +152,18 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 
 # config = {
 #     'SEED':42,
-#     'IMAGE_DIRECTORY':'/mnt/batch/tasks/shared/LS_root/mounts/clusters/quan-a100/code/Users/awctechsoup/cropped/august_24',
+#     'IMAGE_DIRECTORY':'path/to/image/directory',
 #     'ITEM_RESIZE':750,
 #     'BATCH_SIZE':64,
 #     'EFFICIENT_MODEL':'efficientnet-b3',
 #     'EPOCH':4,
 #     'FREEZE_EPOCH':1,
 #     'LR':0.0021,
-#     'SAVE_NAME':'full_73',
-#     'SAVE_DIRECTORY':'/mnt/batch/tasks/shared/LS_root/mounts/clusters/quan-a100/code/Users/Quan.Tran/august_24',
-#     'WANDB_PROJECT':'awc_grant_a100',
-#     'LOG_LABEL_METRICS':['precision','recall','f1']
+#     'SAVE_NAME':'sample_73',
+#     'SAVE_DIRECTORY':'path/to/save/directory',
+#     'SAVE_EVERY_EPOCH':True,
+#     'WANDB_PROJECT':'wandb_project_name',
+#     'LOG_LABEL_METRICS':['precision','f1']
 # }
 
 # # bold_print('reading config')
@@ -170,11 +172,9 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 
 
 # bold_print('load mastersheet')
-# df = pd.read_pickle('/mnt/batch/tasks/shared/LS_root/mounts/clusters/quan-a100/code/Users/classification_bboxcleaned_aug24.pkl')
+# df = pd.read_pickle('path/to/mastersheet.pkl')
 # df['is_val'] = df.split.map({'train':False,'val':True,'test':True})
 # df = df[['cropped_file','label','is_val','detection_conf','split']].copy()
-# df = df.sample(10000,random_state=42,ignore_index=True)
-
-
-# fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
+# df = df.sample(9000,random_state=42,ignore_index=True)
+# _ = fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
 
