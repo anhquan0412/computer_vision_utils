@@ -159,7 +159,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 #     'EPOCH':4,
 #     'FREEZE_EPOCH':1,
 #     'LR':0.0021,
-#     'SAVE_NAME':'sample_73',
+#     'SAVE_NAME':'name_for_this_run',
 #     'SAVE_DIRECTORY':'path/to/save/directory',
 #     'SAVE_EVERY_EPOCH':True,
 #     'WANDB_PROJECT':'wandb_project_name',
