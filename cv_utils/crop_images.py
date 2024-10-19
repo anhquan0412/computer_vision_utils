@@ -166,7 +166,7 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
     args_list = df[['file','_img_dir','_cropped_dir','detection_bbox','_square_crop','bbox_rank','_postfix','_force']].values.tolist()
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        cropped_paths = list(tqdm(executor.map(wrapper, args_list)))
+        cropped_paths = list(tqdm(executor.map(wrapper, args_list),total=len(args_list),desc="Cropping images"))
         
     assert len(cropped_paths)==df.shape[0]
     df['cropped_file'] = cropped_paths
