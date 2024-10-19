@@ -127,6 +127,8 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
         return crop_and_save_image(*args,error_log=error_log)
 
     org_columns=df.columns.tolist()
+    if 'cropped_file' in org_columns:
+        org_columns.remove('cropped_file')
 
     assert "file" in df.columns.values, "There must be a column called 'file' containing relative paths of images"
     assert "detection_bbox" in df.columns.values, "There must be a column called 'detection_bbox' containing the normalized bbox coordinates as lists"
@@ -247,8 +249,9 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
 
     json_file = read_json(md_json)
     df = mdv5_json_to_df(json_file)
-
-    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,Path(md_json).with_suffix('.csv'),force=force)
+    csv_file = Path(md_json).with_suffix('.csv')
+    df.to_csv(csv_file,index=False)
+    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,csv_file,force=force)
 
     
 
