@@ -104,30 +104,34 @@ def mdv5_json_to_df(json_file):
     results=[]
     for img in json_file['images']:
         img_file = img['file']
-        if len(img['detections']) == 0:
-            results.append([img_file,None,None,None])
+        if 'detections' not in img or img['detections'] is None or len(img['detections'])==0:
+            results.append([Path(img_file).as_posix(),None,None,None,None])
         else:
-            for _d in img['detections']:
-                results.append([img_file,_d['category'],_d['conf'],_d['bbox']])
+            for i,_d in enumerate(img['detections']):
+                results.append([Path(img_file).as_posix(),_d['category'],_d['bbox'],_d['conf'],i])
 
-    df =  pd.DataFrame(results,columns=['file','detection_category','detection_conf','detection_bbox'])
-    df['file'] = df['file'].apply(lambda x: Path(x).as_posix())
+    df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank'])
+    return df
 
-    # drop duplicates
-    # it's okay to convert to string, since the float values are already rounded by mdv5
-    df['detection_bbox'] = df['detection_bbox'].astype(str)
-    df = df.drop_duplicates().reset_index(drop=True)
-    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: tuple(ast.literal_eval(x)))
+    # # drop duplicates
+    # # it's okay to convert to string, since the float values are already rounded by mdv5
+    # df['detection_bbox'] = df['detection_bbox'].astype(str)
+    # df = df.drop_duplicates().reset_index(drop=True)
+    # df['detection_bbox'] = df['detection_bbox'].apply(lambda x: tuple(ast.literal_eval(x)))
 
-    # get bbox count and bbox rank
-    df = df[~df.detection_conf.isna()].reset_index(drop=True)
-    _tmp = df.groupby('file').detection_category.count()
+def get_bbox_count_and_conf_rank(df,filter_cat=[]):
+    # get bbox count and ranking based on detection confidence
+    df = df[~df.detection_conf.isna()].copy().reset_index(drop=True)
+    if len(filter_cat)>0 and 'detection_category' in df.columns:
+        df = df[df.detection_category.isin(filter_cat)].copy().reset_index(drop=True)
+    _tmp = df.groupby('file').detection_conf.count()
     _tmp = _tmp.reset_index()
     _tmp.columns=['file','bbox_count']
 
     df = pd.merge(df,_tmp)
-    df['bbox_rank'] = df.groupby('file').detection_conf.rank(method='dense',ascending=False)
+    df['bbox_conf_rank'] = df.groupby('file').detection_conf.rank(method='first',ascending=False)
     return df
+
 
 
 

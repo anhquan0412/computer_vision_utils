@@ -173,27 +173,34 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
     error_log = []
     files=[]
     detection_boxes=[]
-    bbox_ranks=[]
+    detection_cats=[]
     detection_confs=[]
+    bbox_ranks=[]
     cropped_files=[]
 
     json_file = read_json(md_json)
 
-    def crop_from_detections(detection_dics,file='',crop_cat=2,error_log=error_log):
-        if len(detection_dics)==0:
+    def crop_from_detections(image_dic,crop_cat=[2],error_log=error_log):
+        file = Path(image_dic['file']).as_posix()
+        if 'detections' not in image_dic or image_dic['detections'] is None or len(image_dic['detections'])==0:
             files.append(file)
+            detection_cats.append(None)
             detection_boxes.append(None)
             bbox_ranks.append(None)
             detection_confs.append(None)
             cropped_files.append(None)
             return
+
+
+        detection_dics = image_dic['detections']
         
         for i,dic in enumerate(detection_dics):
             files.append(file)
+            detection_cats.append(dic['category'])
             detection_boxes.append(tuple(dic['bbox']))
             bbox_ranks.append(i)
             detection_confs.append(dic['conf'])
-            if dic['category']!=crop_cat: #dont crop
+            if dic['category'] not in crop_cat: #dont crop
                 cropped_files.append(None)
             else:
                 # crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,return_relative_path=True,error_log=[])
@@ -205,9 +212,10 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
 
     df = pd.DataFrame({
         'file':files,
+        'detection_category':detection_cats,
         'detection_bbox':detection_boxes,
-        'bbox_rank':bbox_ranks,
         'detection_conf':detection_confs,
+        'bbox_rank':bbox_ranks,
         'cropped_file':cropped_files
     })
 
@@ -218,8 +226,8 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
         logdir = Path(logdir)
         logdir.mkdir(exist_ok=True,parents=True)
         error_log_path = Path(logdir) / f"cropping_errors_{datetime.today().strftime('%Y%m%d_%H%M%S')}.csv"
-        with open(error_log_path, mode='w', newline='') as file:
-            writer = csv.writer(file)
+        with open(error_log_path, mode='w', newline='') as _file:
+            writer = csv.writer(_file)
             writer.writerow(["img_path", "detection_bbox", "error"])
             writer.writerows(error_log)
 
