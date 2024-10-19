@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime
 import csv
 import pandas as pd
+from pandas.api.types import is_integer_dtype,is_float_dtype
 from tqdm import tqdm
 from PIL import Image, ImageOps
 import warnings
@@ -130,6 +131,9 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     
 
     if 'detection_category' in df.columns.values:
+        # if detection_category is an int or float, convert to int, then to str
+        if is_integer_dtype(df.detection_category) or is_float_dtype(df.detection_category):
+            df.detection_category = df.detection_category.astype(int)
         df.detection_category = df.detection_category.astype(str)
         df = df[df.detection_category.isin(crop_cat)].copy().reset_index(drop=True)
     else:
@@ -218,7 +222,7 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
             detection_boxes.append(tuple(dic['bbox']))
             bbox_ranks.append(i)
             detection_confs.append(dic['conf'])
-            if dic['category'] not in crop_cat: # dont crop
+            if str(dic['category']) not in crop_cat: # dont crop
                 cropped_files.append(None)
             else:
                 cropped_file = crop_and_save_image(file,img_dir,cropped_dir,dic['bbox'],square_crop,i,postfix,error_log=error_log)
