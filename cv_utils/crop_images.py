@@ -117,6 +117,12 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     assert "detection_bbox" in df.columns.values, "There must be a column called 'detection_bbox' containing the normalized bbox coordinates as lists"
     assert "bbox_rank" in df.columns.values, "There must be a column called 'bbox_rank' containing the ranking of the bbox to the image.\n For image with multiple bboxes, this is used to distinguish the result"
     
+    no_bbox_files = df[df.detection_bbox.isna()].file.tolist()
+    for f in no_bbox_files:
+        error_log.append([f,None,'No bounding box coordinates provided'])
+    
+    df = df.dropna(subset=['detection_bbox']).copy().reset_index(drop=True)
+
     if df.detection_bbox.dtype == "object":
         df.detection_bbox = df.detection_bbox.apply(lambda x: tuple(ast.literal_eval(x)))
     df.bbox_rank = df.bbox_rank.astype(int)
