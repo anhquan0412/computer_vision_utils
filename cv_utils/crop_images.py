@@ -136,8 +136,9 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
     df_no_bbox['cropped_file'] = None
     
     df = df.dropna(subset=['detection_bbox']).copy().reset_index(drop=True)
-    if df.detection_bbox.dtype == "object":
-        df.detection_bbox = df.detection_bbox.apply(lambda x: tuple(ast.literal_eval(x)))
+    if df.detection_bbox.dtype == "object" and df.shape[0]>0:
+        if not isinstance(df.detection_bbox.values[0],(tuple,list)):
+            df.detection_bbox = df.detection_bbox.apply(lambda x: tuple(ast.literal_eval(x)))
     df.bbox_rank = df.bbox_rank.astype(int)
     
 
@@ -246,6 +247,7 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
 
     json_file = read_json(md_json)
     df = mdv5_json_to_df(json_file)
+
     crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,Path(md_json).with_suffix('.csv'),force=force)
 
     

@@ -108,7 +108,7 @@ def mdv5_json_to_df(json_file):
             results.append([Path(img_file).as_posix(),None,None,None,None])
         else:
             for i,_d in enumerate(img['detections']):
-                results.append([Path(img_file).as_posix(),_d['category'],_d['bbox'],_d['conf'],i])
+                results.append([Path(img_file).as_posix(),_d['category'],tuple(_d['bbox']),_d['conf'],i])
 
     df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank'])
     return df
