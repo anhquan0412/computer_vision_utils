@@ -7,6 +7,7 @@ import csv
 import pandas as pd
 from tqdm import tqdm
 from PIL import Image, ImageOps
+import warnings
 from .common_utils import read_json
 
 def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,return_relative_path=True,error_log=[]):  
@@ -97,6 +98,8 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
 
     postfix (str): Postfix to be added to the cropped image's file name. Default is an empty string.
 
+    crop_cat (list): A list of categories to be cropped. Contain STRING. Default is '1' for animal category.
+
     max_workers (int): Number of workers for parallelization. Default is 1.
 
     logdir (str): Relative path to the log directory. Default is the current directory.
@@ -125,11 +128,13 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
         df.detection_bbox = df.detection_bbox.apply(lambda x: tuple(ast.literal_eval(x)))
     df.bbox_rank = df.bbox_rank.astype(int)
     
+
     if 'detection_category' in df.columns.values:
         df = df[df.detection_category.isin(crop_cat)].copy().reset_index(drop=True)
+    else:
+        warnings.warn("No 'detection_category' column found. All detections will be cropped.")
 
     Path(cropped_dir).mkdir(exist_ok=True,parents=True)
-
 
     df['img_dir'] = str(img_dir)
     df['cropped_dir'] = str(cropped_dir)
@@ -173,7 +178,7 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
 
     postfix (str): Postfix to be added to the cropped image's file name. Default is an empty string.
 
-    crop_cat (list): A list of categories to be cropped. Default is 1 for animal category.
+    crop_cat (list): A list of categories to be cropped. Contain STRING. Default is '1' for animal category.
 
     max_workers (int): Number of workers for parallelization. Default is 1.
 
@@ -215,7 +220,6 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
             if dic['category'] not in crop_cat: # dont crop
                 cropped_files.append(None)
             else:
-                # crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,return_relative_path=True,error_log=[])
                 cropped_file = crop_and_save_image(file,img_dir,cropped_dir,dic['bbox'],square_crop,i,postfix,error_log=error_log)
                 cropped_files.append(cropped_file)
     
@@ -250,7 +254,7 @@ def main():
     parser.add_argument('cropped_dir', type=str, help="The absolute path to the directory where the cropped images will be saved.")
     parser.add_argument('--square_crop', type=bool, default=True, help="Whether to add black padding to make the cropped image a square. Default is True.")
     parser.add_argument('--postfix', type=str, default="", help="Postfix to be added to the cropped image's file name. Default is an empty string.")
-    parser.add_argument('--crop_cat',  help="A list of categories to be cropped, separated by comma. Default is 1 for animal category", type=str, default='1')
+    parser.add_argument('--crop_cat',  help="A list of categories (treated as string) to be cropped, separated by comma. Default is 1 for animal category", type=str, default='1')
     parser.add_argument('--max_workers', type=int, default=1, help="Number of workers for parallelization. Default is 1.")
     parser.add_argument('--logdir', type=str, default='.', help="Relative path to the log directory. Default is the current directory.")
     
