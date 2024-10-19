@@ -130,9 +130,9 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
     if 'cropped_file' in org_columns:
         org_columns.remove('cropped_file')
 
-    assert "file" in df.columns.values, "There must be a column called 'file' containing relative paths of images"
-    assert "detection_bbox" in df.columns.values, "There must be a column called 'detection_bbox' containing the normalized bbox coordinates as lists"
-    assert "bbox_rank" in df.columns.values, "There must be a column called 'bbox_rank' containing the ranking of the bbox to the image.\n For image with multiple bboxes, this is used to distinguish the result"
+    assert "file" in org_columns, "There must be a column called 'file' containing relative paths of images"
+    assert "detection_bbox" in org_columns, "There must be a column called 'detection_bbox' containing the normalized bbox coordinates as lists"
+    assert "bbox_rank" in org_columns, "There must be a column called 'bbox_rank' containing the ranking of the bbox to the image.\n For image with multiple bboxes, this is used to distinguish the result"
     
     df_no_bbox = df[df.detection_bbox.isna()].copy()
     df_no_bbox['cropped_file'] = None
@@ -145,7 +145,7 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
     
 
     df_no_crop = pd.DataFrame(columns=org_columns)
-    if 'detection_category' in df.columns.values:
+    if 'detection_category' in org_columns:
         # if detection_category is an int or float, convert to int, then to str
         if is_integer_dtype(df.detection_category) or is_float_dtype(df.detection_category):
             df.detection_category = df.detection_category.astype(int)
