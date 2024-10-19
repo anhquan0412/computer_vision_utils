@@ -130,11 +130,14 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     df.bbox_rank = df.bbox_rank.astype(int)
     
 
+    df_no_crop = pd.DataFrame(columns=org_columns)
     if 'detection_category' in df.columns.values:
         # if detection_category is an int or float, convert to int, then to str
         if is_integer_dtype(df.detection_category) or is_float_dtype(df.detection_category):
             df.detection_category = df.detection_category.astype(int)
         df.detection_category = df.detection_category.astype(str)
+        df_no_crop = df[~df.detection_category.isin(crop_cat)].copy().reset_index(drop=True)
+        df_no_crop['cropped_file'] = None
         df = df[df.detection_category.isin(crop_cat)].copy().reset_index(drop=True)
     else:
         warnings.warn("No 'detection_category' column found. All detections will be cropped.")
@@ -153,7 +156,7 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     assert len(cropped_paths)==df.shape[0]
     df['cropped_file'] = cropped_paths
     df = df[org_columns+['cropped_file']].copy()
-    df = pd.concat([df,df_no_bbox],ignore_index=True)
+    df = pd.concat([df,df_no_crop,df_no_bbox],ignore_index=True)
     df.to_csv(str(Path(detection_csv)),index=False)
 
     # Write the error log to a CSV file

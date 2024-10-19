@@ -129,7 +129,7 @@ def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     _tmp.columns=['file','bbox_count']
 
     df = pd.merge(df,_tmp)
-    df['bbox_conf_rank'] = df.groupby('file').detection_conf.rank(method='first',ascending=False)
+    df['bbox_conf_rank'] = df.groupby('file').detection_conf.rank(method='first',ascending=False).astype(int)
     return df
 
 
