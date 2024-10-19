@@ -12,7 +12,7 @@ import warnings
 from .common_utils import read_json
 from .awc_utils import mdv5_json_to_df
 
-def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,return_relative_path=True,error_log=[]):  
+def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,force,return_relative_path=True,error_log=[]):  
     """
     Crop images based on bounding box coordinates and save the cropped images.
 
@@ -32,6 +32,8 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
 
     return_relative_path (bool): Whether to return the relative path of the cropped image. Default is False.
 
+    force (bool): Whether to overwrite existing cropped images. Default is False.
+
     Returns:
     The path to the cropped image
     """
@@ -46,8 +48,9 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
     if postfix.strip()!="": postfix=f"_{postfix}"
     dest_fname = f"{dest_absolute_path.stem}___crop{bbox_rank:>02d}{postfix}{dest_absolute_path.suffix}"
     dest_absolute_path = dest_absolute_path.parent / dest_fname
+
     # skip cropping if the cropped images already exists
-    if dest_absolute_path.exists():
+    if dest_absolute_path.exists() and not force:
         if not return_relative_path:
             return dest_absolute_path.as_posix()
         return (img_path.parent/dest_fname).as_posix()
@@ -89,7 +92,7 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
         error_log.append([img_path.as_posix(), bbox_coord, f'{exception_type}: {e}'])
         return None
 
-def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.',detection_csv='detection.csv'):
+def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.',detection_csv='detection.csv',force=False):
     """
     Crop images based on bounding box coordinates provided in a DataFrame and save the cropped images.
     Also save the new csv file with the cropped image paths, and log any error that occurs during the process.
@@ -112,6 +115,8 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
     max_workers (int): Number of workers for parallelization. Default is 1.
 
     logdir (str): Relative path to the log directory. Default is the current directory.
+
+    force (bool): Whether to overwrite existing cropped images. Default is False.
 
     Returns:
     None
@@ -150,11 +155,12 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
 
     Path(cropped_dir).mkdir(exist_ok=True,parents=True)
 
-    df['img_dir'] = str(img_dir)
-    df['cropped_dir'] = str(cropped_dir)
-    df['square_crop'] = square_crop
-    df['postfix'] = postfix
-    args_list = df[['file','img_dir','cropped_dir','detection_bbox','square_crop','bbox_rank','postfix']].values.tolist()
+    df['_img_dir'] = str(img_dir)
+    df['_cropped_dir'] = str(cropped_dir)
+    df['_square_crop'] = square_crop
+    df['_postfix'] = postfix
+    df['_force'] = force
+    args_list = df[['file','_img_dir','_cropped_dir','detection_bbox','_square_crop','bbox_rank','_postfix','_force']].values.tolist()
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         cropped_paths = list(tqdm(executor.map(wrapper, args_list)))
@@ -176,7 +182,7 @@ def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_
             writer.writerows(error_log)
 
 
-def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
+def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.',force=False):
     """
     Crop images based on bounding box coordinates provided in a CSV file and save the cropped images.
     Also save the new csv file with the cropped image paths, and log any error that occurs during the process.
@@ -199,15 +205,17 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
 
     logdir (str): Relative path to the log directory. Default is the current directory.
 
+    force (bool): Whether to overwrite existing cropped images. Default is False.
+
     Returns:
     None
     """
 
     df = pd.read_csv(Path(detection_csv))
-    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,detection_csv)
+    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,detection_csv,force=force)
     
 
-def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
+def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.',force=False):
     """
     Crop images based on bounding box coordinates provided in a JSON file and save the cropped images.
     Also save the new csv file with the cropped image paths in the same location as the json file, 
@@ -230,13 +238,15 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
 
     logdir (str): Relative path to the log directory. Default is the current directory.
 
+    force (bool): Whether to overwrite existing cropped images. Default is False.
+
     Returns:
     None
     """
 
     json_file = read_json(md_json)
     df = mdv5_json_to_df(json_file)
-    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,Path(md_json).with_suffix('.csv'))
+    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,Path(md_json).with_suffix('.csv'),force=force)
 
     
 
@@ -250,6 +260,7 @@ def main():
     parser.add_argument('--crop_cat',  help="A list of categories (treated as string) to be cropped, separated by comma. Default is 1 for animal category", type=str, default='1')
     parser.add_argument('--max_workers', type=int, default=1, help="Number of workers for parallelization. Default is 1.")
     parser.add_argument('--logdir', type=str, default='.', help="Relative path to the log directory. Default is the current directory.")
+    parser.add_argument('--force', type=bool, default=False, help="Whether to overwrite existing cropped images. Default is False.")
     
     args = parser.parse_args()
     args.crop_cat = args.crop_cat.strip().split(',')
@@ -266,7 +277,8 @@ def main():
           postfix=args.postfix,
           crop_cat=args.crop_cat,
           max_workers=args.max_workers,
-          logdir=args.logdir
+          logdir=args.logdir,
+          force=args.force
           )
     
 
@@ -274,4 +286,4 @@ if __name__ == "__main__":
     main()
 
 # Example Usage:
-# crop-images-from-file path/to/csv_or_json_file path/to/image_dir path/to/drop_dir --square_crop True --postfix mv5b --max_workers 4 --crop_cat 1 --logdir path/to/log_dir
+# crop-images-from-file path/to/csv_or_json_file path/to/image_dir path/to/drop_dir --square_crop True --postfix mv5b --max_workers 4 --crop_cat 1 --logdir path/to/log_dir --force False
