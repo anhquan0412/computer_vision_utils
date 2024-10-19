@@ -130,6 +130,7 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     
 
     if 'detection_category' in df.columns.values:
+        df.detection_category = df.detection_category.astype(str)
         df = df[df.detection_category.isin(crop_cat)].copy().reset_index(drop=True)
     else:
         warnings.warn("No 'detection_category' column found. All detections will be cropped.")
