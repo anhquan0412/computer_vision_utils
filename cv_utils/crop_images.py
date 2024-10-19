@@ -10,6 +10,7 @@ from tqdm import tqdm
 from PIL import Image, ImageOps
 import warnings
 from .common_utils import read_json
+from .awc_utils import mdv5_json_to_df
 
 def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,return_relative_path=True,error_log=[]):  
     """
@@ -38,6 +39,19 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
     img_path = Path(img_path)
     img_dir = Path(img_dir)
     cropped_dir = Path(cropped_dir)
+
+
+    dest_absolute_path = cropped_dir/img_path
+    dest_absolute_path.parent.mkdir(exist_ok=True,parents=True)
+    if postfix.strip()!="": postfix=f"_{postfix}"
+    dest_fname = f"{dest_absolute_path.stem}___crop{bbox_rank:>02d}{postfix}{dest_absolute_path.suffix}"
+    dest_absolute_path = dest_absolute_path.parent / dest_fname
+    # skip cropping if the cropped images already exists
+    if dest_absolute_path.exists():
+        if not return_relative_path:
+            return dest_absolute_path.as_posix()
+        return (img_path.parent/dest_fname).as_posix()
+
     try:
         # load local image
         with Image.open(img_dir/img_path) as img:
@@ -65,14 +79,8 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
         crop = img.crop(box=[xmin, ymin, xmin + box_w, ymin + box_h])
         if square_crop and (box_w != box_h):
             crop = ImageOps.pad(crop, size=(box_size, box_size), color=0)
-
-
-        dest_absolute_path = cropped_dir/img_path
-        dest_absolute_path.parent.mkdir(exist_ok=True,parents=True)
-        if postfix.strip()!="": postfix=f"_{postfix}"
-        dest_fname = f"{dest_absolute_path.stem}___crop{bbox_rank:>02d}{postfix}{dest_absolute_path.suffix}"
-        dest_absolute_path = dest_absolute_path.parent / dest_fname
         crop.save(dest_absolute_path)
+
         if not return_relative_path:
             return dest_absolute_path.as_posix()
         return (img_path.parent/dest_fname).as_posix()
@@ -81,15 +89,15 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
         error_log.append([img_path.as_posix(), bbox_coord, f'{exception_type}: {e}'])
         return None
 
-
-def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
+def crop_images_from_df(df,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.',detection_csv='detection.csv'):
     """
-    Crop images based on bounding box coordinates provided in a CSV file and save the cropped images.
+    Crop images based on bounding box coordinates provided in a DataFrame and save the cropped images.
     Also save the new csv file with the cropped image paths, and log any error that occurs during the process.
 
     Parameters:
-    detection_csv (str): The absolute path to the CSV file containing image file paths and bounding box coordinates.
-                         The CSV file must have 3 columns: 'file', 'detection_bbox', 'bbox_rank'.
+    df (pd.DataFrame): The DataFrame containing image file paths and bounding box coordinates.
+        The DataFrame must have 3 columns: 'file', 'detection_bbox', 'bbox_rank'.
+        The DataFrame can have 'detection_category' column if the images are to be filtered by category.
 
     img_dir (str): The absolute path to the directory containing the raw images.
 
@@ -108,13 +116,11 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     Returns:
     None
     """
-
     error_log = []
     
     def wrapper(args):
         return crop_and_save_image(*args,error_log=error_log)
-    
-    df = pd.read_csv(detection_csv)
+
     org_columns=df.columns.tolist()
 
     assert "file" in df.columns.values, "There must be a column called 'file' containing relative paths of images"
@@ -169,6 +175,38 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
             writer.writerow(["img_path", "detection_bbox", "error"])
             writer.writerows(error_log)
 
+
+def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
+    """
+    Crop images based on bounding box coordinates provided in a CSV file and save the cropped images.
+    Also save the new csv file with the cropped image paths, and log any error that occurs during the process.
+
+    Parameters:
+    detection_csv (str): The absolute path to the CSV file containing image file paths and bounding box coordinates.
+                         The CSV file must have 3 columns: 'file', 'detection_bbox', 'bbox_rank'.
+
+    img_dir (str): The absolute path to the directory containing the raw images.
+
+    cropped_dir (str): The absolute path to the directory where the cropped images will be saved.
+
+    square_crop (bool): Whether to add black padding to make the cropped image a square. Default is True.
+
+    postfix (str): Postfix to be added to the cropped image's file name. Default is an empty string.
+
+    crop_cat (list): A list of categories to be cropped. Contain STRING. Default is '1' for animal category.
+
+    max_workers (int): Number of workers for parallelization. Default is 1.
+
+    logdir (str): Relative path to the log directory. Default is the current directory.
+
+    Returns:
+    None
+    """
+
+    df = pd.read_csv(Path(detection_csv))
+    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,detection_csv)
+    
+
 def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
     """
     Crop images based on bounding box coordinates provided in a JSON file and save the cropped images.
@@ -195,65 +233,12 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
     Returns:
     None
     """
-    error_log = []
-    files=[]
-    detection_boxes=[]
-    detection_cats=[]
-    detection_confs=[]
-    bbox_ranks=[]
-    cropped_files=[]
 
     json_file = read_json(md_json)
+    df = mdv5_json_to_df(json_file)
+    crop_images_from_df(df,img_dir,cropped_dir,square_crop,postfix,crop_cat,max_workers,logdir,Path(md_json).with_suffix('.csv'))
 
-    def crop_from_detections(image_dic,crop_cat=crop_cat,error_log=error_log):
-        file = Path(image_dic['file']).as_posix()
-        if 'detections' not in image_dic or image_dic['detections'] is None or len(image_dic['detections'])==0:
-            files.append(file)
-            detection_cats.append(None)
-            detection_boxes.append(None)
-            bbox_ranks.append(None)
-            detection_confs.append(None)
-            cropped_files.append(None)
-            return
-
-
-        detection_dics = image_dic['detections']
-        
-        for i,dic in enumerate(detection_dics):
-            files.append(file)
-            detection_cats.append(dic['category'])
-            detection_boxes.append(tuple(dic['bbox']))
-            bbox_ranks.append(i)
-            detection_confs.append(dic['conf'])
-            if str(dic['category']) not in crop_cat: # dont crop
-                cropped_files.append(None)
-            else:
-                cropped_file = crop_and_save_image(file,img_dir,cropped_dir,dic['bbox'],square_crop,i,postfix,error_log=error_log)
-                cropped_files.append(cropped_file)
     
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        list(tqdm(executor.map(crop_from_detections, json_file['images']), total=len(json_file['images'])))
-
-    df = pd.DataFrame({
-        'file':files,
-        'detection_category':detection_cats,
-        'detection_bbox':detection_boxes,
-        'detection_conf':detection_confs,
-        'bbox_rank':bbox_ranks,
-        'cropped_file':cropped_files
-    })
-
-    df.to_csv(str(Path(md_json).with_suffix('.csv')),index=False)
-
-    # Write the error log to a CSV file
-    if len(error_log):
-        logdir = Path(logdir)
-        logdir.mkdir(exist_ok=True,parents=True)
-        error_log_path = Path(logdir) / f"cropping_errors_{datetime.today().strftime('%Y%m%d_%H%M%S')}.csv"
-        with open(error_log_path, mode='w', newline='') as _file:
-            writer = csv.writer(_file)
-            writer.writerow(["img_path", "detection_bbox", "error"])
-            writer.writerows(error_log)
 
 def main():
     parser = argparse.ArgumentParser(description="Crop images based on bounding box coordinates provided in a CSV file.")
