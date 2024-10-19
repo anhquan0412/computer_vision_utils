@@ -5,22 +5,6 @@ from io import BytesIO
 from typing import Union
 
 
-def convert_yolo_to_xywh(yolo_box):
-    """
-    Converts a YOLO format bounding box to [x_min, y_min, width_of_box, height_of_box].
-
-    Args:
-        yolo_box (list): bounding box of format [x_center, y_center, width_of_box, height_of_box]
-
-    Returns:
-        list: bbox with coordinates represented as [x_min, y_min, width_of_box, height_of_box]
-    """
-    
-    x_center, y_center, width_of_box, height_of_box = yolo_box
-    x_min = x_center - width_of_box / 2.0
-    y_min = y_center - height_of_box / 2.0
-    return [x_min, y_min, width_of_box, height_of_box]
-
 def load_local_image(img_path: str |  BinaryIO) -> Optional[Image.Image]:
     """Attempts to load an image from a local path."""
     try:

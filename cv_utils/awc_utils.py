@@ -81,12 +81,26 @@ def mdv5_json_to_df(json_file):
     #                               0.3984,
     #                               0.1455,
     #                               0.1848
-    #                             ]
+    #                             ],
+    #                     "classifications": [
+    #                         [
+    #                             "35",
+    #                             0.5849
+    #                         ],
+    #                         [
+    #                             "20",
+    #                             0.3603
+    #                         ]
+    #                     ]
+    #                 },
+    #                 {
+    #                     ...
     #                 }
     #             ]
     #         },
     #     ]
     # }
+
     results=[]
     for img in json_file['images']:
         img_file = img['file']
