@@ -57,7 +57,7 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
             box_h = min(img_h, box_size)
     
         if box_w == 0 or box_h == 0:
-            error_log.append(img_path.as_posix(), bbox_coord, 'Box coordinate error')
+            error_log.append([img_path.as_posix(), bbox_coord, 'Box coordinate error'])
             return None
     
         crop = img.crop(box=[xmin, ymin, xmin + box_w, ymin + box_h])
@@ -76,7 +76,7 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
         return (img_path.parent/dest_fname).as_posix()
     except Exception as e:
         exception_type = type(e).__name__
-        error_log.append(img_path.as_posix(), bbox_coord, f'{exception_type}: {e}')
+        error_log.append([img_path.as_posix(), bbox_coord, f'{exception_type}: {e}'])
         return None
 
 
