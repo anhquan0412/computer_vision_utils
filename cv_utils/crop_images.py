@@ -80,7 +80,7 @@ def crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox
         return None
 
 
-def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,postfix="",max_workers=1,logdir='.'):
+def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
     """
     Crop images based on bounding box coordinates provided in a CSV file and save the cropped images.
     Also save the new csv file with the cropped image paths, and log any error that occurs during the process.
@@ -117,17 +117,19 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
     assert "detection_bbox" in df.columns.values, "There must be a column called 'detection_bbox' containing the normalized bbox coordinates as lists"
     assert "bbox_rank" in df.columns.values, "There must be a column called 'bbox_rank' containing the ranking of the bbox to the image.\n For image with multiple bboxes, this is used to distinguish the result"
     
-    no_bbox_files = df[df.detection_bbox.isna()].file.tolist()
-    for f in no_bbox_files:
-        error_log.append([f,None,'No bounding box coordinates provided'])
+    df_no_bbox = df[df.detection_bbox.isna()].copy()
+    df_no_bbox['cropped_file'] = None
     
     df = df.dropna(subset=['detection_bbox']).copy().reset_index(drop=True)
-
     if df.detection_bbox.dtype == "object":
         df.detection_bbox = df.detection_bbox.apply(lambda x: tuple(ast.literal_eval(x)))
     df.bbox_rank = df.bbox_rank.astype(int)
     
+    if 'detection_category' in df.columns.values:
+        df = df[df.detection_category.isin(crop_cat)].copy().reset_index(drop=True)
+
     Path(cropped_dir).mkdir(exist_ok=True,parents=True)
+
 
     df['img_dir'] = str(img_dir)
     df['cropped_dir'] = str(cropped_dir)
@@ -140,7 +142,9 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
         
     assert len(cropped_paths)==df.shape[0]
     df['cropped_file'] = cropped_paths
-    df[org_columns+['cropped_file']].to_csv(str(Path(detection_csv)),index=False)
+    df = df[org_columns+['cropped_file']].copy()
+    df = pd.concat([df,df_no_bbox],ignore_index=True)
+    df.to_csv(str(Path(detection_csv)),index=False)
 
     # Write the error log to a CSV file
     if len(error_log):
@@ -152,7 +156,7 @@ def crop_images_from_csv(detection_csv,img_dir,cropped_dir,square_crop=True,post
             writer.writerow(["img_path", "detection_bbox", "error"])
             writer.writerows(error_log)
 
-def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfix="",max_workers=1,logdir='.'):
+def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfix="",crop_cat=['1'],max_workers=1,logdir='.'):
     """
     Crop images based on bounding box coordinates provided in a JSON file and save the cropped images.
     Also save the new csv file with the cropped image paths in the same location as the json file, 
@@ -168,6 +172,8 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
     square_crop (bool): Whether to add black padding to make the cropped image a square. Default is True.
 
     postfix (str): Postfix to be added to the cropped image's file name. Default is an empty string.
+
+    crop_cat (list): A list of categories to be cropped. Default is 1 for animal category.
 
     max_workers (int): Number of workers for parallelization. Default is 1.
 
@@ -186,7 +192,7 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
 
     json_file = read_json(md_json)
 
-    def crop_from_detections(image_dic,crop_cat=[2],error_log=error_log):
+    def crop_from_detections(image_dic,crop_cat=crop_cat,error_log=error_log):
         file = Path(image_dic['file']).as_posix()
         if 'detections' not in image_dic or image_dic['detections'] is None or len(image_dic['detections'])==0:
             files.append(file)
@@ -206,7 +212,7 @@ def crop_images_from_md_json(md_json,img_dir,cropped_dir,square_crop=True,postfi
             detection_boxes.append(tuple(dic['bbox']))
             bbox_ranks.append(i)
             detection_confs.append(dic['conf'])
-            if dic['category'] not in crop_cat: #dont crop
+            if dic['category'] not in crop_cat: # dont crop
                 cropped_files.append(None)
             else:
                 # crop_and_save_image(img_path,img_dir,cropped_dir,bbox_coord,square_crop,bbox_rank,postfix,return_relative_path=True,error_log=[])
@@ -244,36 +250,31 @@ def main():
     parser.add_argument('cropped_dir', type=str, help="The absolute path to the directory where the cropped images will be saved.")
     parser.add_argument('--square_crop', type=bool, default=True, help="Whether to add black padding to make the cropped image a square. Default is True.")
     parser.add_argument('--postfix', type=str, default="", help="Postfix to be added to the cropped image's file name. Default is an empty string.")
+    parser.add_argument('--crop_cat',  help="A list of categories to be cropped, separated by comma. Default is 1 for animal category", type=str, default='1')
     parser.add_argument('--max_workers', type=int, default=1, help="Number of workers for parallelization. Default is 1.")
     parser.add_argument('--logdir', type=str, default='.', help="Relative path to the log directory. Default is the current directory.")
     
     args = parser.parse_args()
+    args.crop_cat = args.crop_cat.strip().split(',')
     if args.detection_file.endswith('.csv'):
-        crop_images_from_csv(
-            detection_csv=args.detection_file,
-            img_dir=args.img_dir,
-            cropped_dir=args.cropped_dir,
-            square_crop=args.square_crop,
-            postfix=args.postfix,
-            max_workers=args.max_workers,
-            logdir=args.logdir
-        )
+        _func = crop_images_from_csv
     elif args.detection_file.endswith('.json'):
-        crop_images_from_md_json(
-            md_json=args.detection_file,
-            img_dir=args.img_dir,
-            cropped_dir=args.cropped_dir,
-            square_crop=args.square_crop,
-            postfix=args.postfix,
-            max_workers=args.max_workers,
-            logdir=args.logdir
-        )
+        _func = crop_images_from_md_json
     else:
         raise ValueError("Detection file must be either a CSV or a JSON file.")
+    _func(args.detection_file,
+          img_dir=args.img_dir,
+          cropped_dir=args.cropped_dir,
+          square_crop=args.square_crop,
+          postfix=args.postfix,
+          crop_cat=args.crop_cat,
+          max_workers=args.max_workers,
+          logdir=args.logdir
+          )
     
 
 if __name__ == "__main__":
     main()
 
 # Example Usage:
-# crop-images-from-file C:\Users\testing.csv D:\image D:\image\cropped --square_crop True --postfix mv5b --max_workers 4 --logdir C:\Users\cropping_logs
+# crop-images-from-file path/to/csv_or_json_file path/to/image_dir path/to/drop_dir --square_crop True --postfix mv5b --max_workers 4 --crop_cat 1 --logdir path/to/log_dir
