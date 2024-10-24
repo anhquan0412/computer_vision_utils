@@ -56,68 +56,24 @@ def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'Extr
 
 
 def mdv5_json_to_df(json_file):
-    # Example of mdv5 json file:
-    # {
-    #     "info": {
-    #         "classifier": "classifier_v5b",
-    #         "classification_completion_time": "2024-06-15T09:14:54.294909Z",
-    #         "format_version": "1.1"
-    #     },
-    #     "detection_categories": {
-    #         "1": "animal",
-    #         "2": "person",
-    #         "3": "vehicle"
-    #     },
-    #     "images": [
-    #         {
-    #             "file": "CPW_Files_/june_24/2019-12-17 19-13-17 M 1_5.JPG",
-    #             "max_detection_conf": 0.919,
-    #             "detections": [
-    #                 {
-    #                     "category": "1",
-    #                     "conf": 0.919,
-    #                     "bbox": [
-    #                               0,
-    #                               0.3984,
-    #                               0.1455,
-    #                               0.1848
-    #                             ],
-    #                     "classifications": [
-    #                         [
-    #                             "35",
-    #                             0.5849
-    #                         ],
-    #                         [
-    #                             "20",
-    #                             0.3603
-    #                         ]
-    #                     ]
-    #                 },
-    #                 {
-    #                     ...
-    #                 }
-    #             ]
-    #         },
-    #     ]
-    # }
+    # Example of Megadetector JSON file, version 1.4
+    # https://github.com/agentmorris/MegaDetector/blob/main/megadetector/api/batch_processing/README.md
 
     results=[]
     for img in json_file['images']:
         img_file = img['file']
         if 'detections' not in img or img['detections'] is None or len(img['detections'])==0:
-            results.append([Path(img_file).as_posix(),None,None,None,None])
+            result = [Path(img_file).as_posix(),None,None,None,None,None]
+            if 'failure' in img:
+                result[-1] = img['failure']
+            results.append(result)
+
         else:
             for i,_d in enumerate(img['detections']):
-                results.append([Path(img_file).as_posix(),_d['category'],tuple(_d['bbox']),_d['conf'],i])
+                results.append([Path(img_file).as_posix(),_d['category'],tuple(_d['bbox']),_d['conf'],i,None])
 
-    df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank'])
+    df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank','failure'])
     return df
-
-    # # drop duplicates
-    # # it's okay to convert to string, since the float values are already rounded by mdv5
-    # df['detection_bbox'] = df['detection_bbox'].astype(str)
-    # df = df.drop_duplicates().reset_index(drop=True)
-    # df['detection_bbox'] = df['detection_bbox'].apply(lambda x: tuple(ast.literal_eval(x)))
 
 def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     # get bbox count and ranking based on detection confidence
