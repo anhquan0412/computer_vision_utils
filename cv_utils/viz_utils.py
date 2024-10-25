@@ -3,7 +3,7 @@ import math
 import pandas as pd
 import numpy as np
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report
-from .img_utils import load_local_image, crop_image
+from .img_utils import load_local_image, crop_image, load_image_general
 
 def clas_report_compact(y_true,y_pred,label_names=None):
     report = classification_report(y_true, y_pred, 
@@ -104,8 +104,7 @@ def visualize_images(image_paths, labels=None, bboxes=None, figsize=(10, 10), fo
     
     # Iterate through the images and plot them
     for i in range(num_images):
-        # img = mpimg.imread(image_paths[i])
-        img = load_local_image(image_paths[i])
+        img = load_image_general(image_paths[i])
         if bboxes is not None:
             bbox = bboxes[i]
             img = crop_image(img,bbox,square_crop)

@@ -1,4 +1,3 @@
-import ast
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -6,9 +5,16 @@ from pathlib import Path
 import shutil
 from tqdm import tqdm
 import time
+from azure.storage.blob import ContainerClient
+import os
+import io
+import json
+from megadetector.detection.run_detector import load_detector
+from megadetector.visualization import visualization_utils as md_viz
 
 from .viz_utils import visualize_images
 from .common_utils import value_counts_both
+
 
 
 
@@ -75,6 +81,7 @@ def mdv5_json_to_df(json_file):
     df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank','failure'])
     return df
 
+
 def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     # get bbox count and ranking based on detection confidence
     df = df[~df.detection_conf.isna()].copy().reset_index(drop=True)
@@ -104,3 +111,83 @@ def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsiz
     if 'label' in _tmp.columns:
         to_show+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
     visualize_images(_tmp.abs_path,to_show,_tmp.detection_bbox,figsize=figsize,fontsize=fontsize)
+
+
+
+def download_img(img_file,input_container_client):
+    use_url = img_file.startswith(('http://', 'https://'))
+    if not use_url and input_container_client is not None:
+        downloader = input_container_client.download_blob(img_file)
+        img_file = io.BytesIO()
+        blob_props = downloader.download_to_stream(img_file)
+
+    img = md_viz.open_image(img_file)
+    return img
+
+
+class MegaDetectorInference:
+    def __init__(self,
+                 md_path=None, # absolute path to megadetector weight
+                ):
+        self.detector = load_detector(str(md_path))
+    
+    def write_checkpoint(self,results,checkpoint_path):
+        # github.com/agentmorris/MegaDetector/blob/d706f9c31ea0a1f2fef5b4a3846737d3d4cf9d64/megadetector/detection/run_detector_batch.py#L793
+        # Back up any previous checkpoints, to protect against crashes while we're writing
+        # the checkpoint file.
+        checkpoint_tmp_path = None
+        if os.path.isfile(checkpoint_path):
+            checkpoint_tmp_path = checkpoint_path.parent/(checkpoint_path.stem+'_tmp.json')
+            shutil.copyfile(checkpoint_path,checkpoint_tmp_path)
+            
+        # Write the new checkpoint
+        with open(checkpoint_path, 'w') as f:
+            json.dump({'images': results}, f, indent=1, default=str)
+            
+        # Remove the backup checkpoint if it exists
+        if checkpoint_tmp_path is not None:
+            os.remove(checkpoint_tmp_path)
+        
+    def predict(self,
+                img_paths, # list of absolute image paths if not using SAS key, relative paths otherwise, or list of URLs
+                input_container_sas=None, # to get images from a Azure blob container
+                md_threshold=0.1, # megadetector bbox confidence threshold, for NMS
+                checkpoint_path=None, # absolute path to save check point
+                checkpoint_frequency=0, # write results to JSON checkpoint file every n images, set 0 to disable
+                convert_to_df=False, # either to convert the results (list of dictionary) to dataframe format
+               ):
+        if checkpoint_path is not None and checkpoint_frequency<=0:
+            raise Exception('Invalid checkpoint frequency, please input a positive value')
+
+        if len(img_paths)==0: return []
+            
+        input_container_client = None
+        if input_container_sas is not None:
+            input_container_client = ContainerClient.from_container_url(input_container_sas)
+        
+        results = []
+        img_count=0
+        for img_path in tqdm(img_paths):
+            img_count+=1
+            try:
+                img = download_img(img_path,input_container_client)
+            except Exception as e:
+                print(f'File {img_path}, Download image exception: {e}')
+                result= {'file': img_path,
+                         'failure': "Failure image access",
+                        }
+            else:
+                result = self.detector.generate_detections_one_image(img, 
+                                                                     img_path, 
+                                                                     detection_threshold=md_threshold)
+                         
+            results.append(result)
+
+            if checkpoint_frequency!=0 and ((img_count%checkpoint_frequency)==0 or img_count==len(img_paths)):
+                print(f'Write checkpoint for {img_count} images')
+                self.write_checkpoint(results,Path(checkpoint_path))
+
+        if convert_to_df:
+            results = mdv5_json_to_df({'images':results})
+        
+        return results

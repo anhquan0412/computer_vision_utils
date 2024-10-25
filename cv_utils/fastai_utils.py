@@ -1,9 +1,18 @@
+
 from sklearn.metrics import precision_recall_fscore_support
 from fastai.vision.all import *
 from fastai.callback.wandb import *
+from collections.abc import Iterable
+from pathlib import Path
+import ast
+import torch
+import pandas as pd
+import numpy as np
 import wandb
+from azure.storage.blob import ContainerClient
 import os
 import warnings; warnings.simplefilter('ignore')
+from .img_utils import crop_image
 from efficientnet_pytorch import EfficientNet 
 
 def bold_print(txt):
@@ -178,3 +187,167 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 # df = df.sample(9000,random_state=42,ignore_index=True)
 # _ = fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
 
+
+
+def _download_img_tiny(input_container_client,inp):
+    if input_container_client is not None:
+        downloader = input_container_client.download_blob(inp)
+        inp = io.BytesIO()
+        blob_props = downloader.download_to_stream(inp)
+    return inp
+
+
+def PILImageFactory(container_client=None):
+    class PILMDImage(PILBase):
+        # Blob client variable
+        input_container_client=container_client
+        
+        @classmethod
+        def create(cls, inps, **kwargs):
+            if not isinstance(inps,str):
+                inps = list(inps)
+                inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
+                img = PILImage.create(inps[0])
+                norm_bbox = inps[1]
+                img = crop_image(img,norm_bbox,square_crop=True)
+                return PILImage.create(img)
+
+            inps = _download_img_tiny(PILMDImage.input_container_client,inps)
+            return PILImage.create(inps)
+ 
+    return PILMDImage
+
+def _verify_images(inps,input_container_sas=None):    
+    try:
+        input_container_client=None
+        if input_container_sas is not None:
+            input_container_client = ContainerClient.from_container_url(input_container_sas)
+        if not isinstance(inps,str):
+            inps = list(inps)
+            inps[0] = _download_img_tiny(input_container_client,inps[0])
+            img = PILImage.create(inps[0])
+            norm_bbox = inps[1]
+            img = crop_image(img,norm_bbox,square_crop=True)
+            img = PILImage.create(img)
+        else:
+            inps = _download_img_tiny(input_container_client,inps)
+            img = PILImage.create(inps)
+    
+    except Exception as e:
+        return False
+    else:
+        return True
+
+
+class EffNetClassificationInference:
+    def __init__(self,
+                 efficient_model='efficientnet-b3', # name of pretrained efficient model
+                 finetuned_model=None, # absolute path to efficient model that has been finetuned
+                 label_names=None, # list of output labels
+                 item_tfms=Resize(750), # list of item transformations
+                 aug_tfms=None, # augmentation transformations, needed if TTA is used
+                ):
+        self.label_names = label_names
+        finetuned_model = Path(finetuned_model)
+        finetuned_model = finetuned_model.parent/finetuned_model.stem
+        self.finetuned_model = finetuned_model
+        self.item_tfms = item_tfms
+        self.aug_tfms = aug_tfms
+        self.model = EfficientNet.from_pretrained(efficient_model,num_classes=len(label_names))
+
+    def validate_df(self,df):
+        if 'file' in df.columns.tolist():
+            if len(df)==0: return []
+            if 'detection_bbox' in df.columns.tolist():
+                if not isinstance(df['detection_bbox'].values[0],(list,tuple)):
+                    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: None if (x is None or x is np.NaN) else list(ast.literal_eval(x)))
+                return df[['file','detection_bbox']].values
+            else:
+                return df['file'].values
+        else:
+            raise Exception("For dataframe input, the dataframe must have a column named 'file' \
+            containing the absolute path of images, and optionally a column named 'detection_bbox' for their bounding boxes")
+
+    def create_output_df(self,inputs,preds,pred_idxs,valid_idxs,name_output):
+        if isinstance(inputs[0],str):
+            df= pd.DataFrame(inputs,columns=['file'])
+        else:
+            df= pd.DataFrame(inputs,columns=['file','detection_bbox'])
+
+        top_n = preds.shape[1]
+        df_pred = pd.DataFrame(pred_idxs,columns=[f'pred_{i+1}' for i in range(top_n)])
+        if name_output:
+            df_pred = df_pred.map(lambda x: self.label_names[x])            
+        df_prob = pd.DataFrame(preds,columns=[f'prob_{i+1}' for i in range(top_n)])
+        
+        df_pred.index=valid_idxs
+        df_prob.index=valid_idxs
+        
+        df = pd.concat([df,df_pred,df_prob],axis=1)
+        return df
+        
+    def predict(self,
+                inputs, # can be list of img paths, list of tuples, or dataframe
+                input_container_sas=None, # SAS for accessing images in Blob Container
+                batch_size=16,
+                tta_n=0, # whether to perform test time augmentation, and how many
+                pred_topn=1, # to return top n predictions
+                name_output=True, # whether to return the label names instead of label indices
+                prob_round=3, # number of decimal points to round the probability
+                do_image_check=False, # to check whether input images can be opened. Note: without this, invalid images will interrupt the prediction process
+               ):
+        if not isinstance(inputs, Iterable) or isinstance(inputs,str):
+            inputs = np.array([inputs])
+        if isinstance(inputs, pd.DataFrame):
+            inputs = self.validate_df(inputs)
+        if len(inputs)==0: return pd.DataFrame()
+        
+
+        if isinstance(inputs[0],str) or (len(inputs[0])==2 and isinstance(inputs[0][0],str) and len(inputs[0][1])==4):
+            inputs = np.array(inputs)
+            
+            input_container_client=None
+            if input_container_sas is not None:
+                input_container_client = ContainerClient.from_container_url(input_container_sas)
+
+            PILImageClass = PILImageFactory(container_client=input_container_client)
+            # check for imgs that can be opened only
+            valid_idxs = list(range(len(inputs)))
+            if do_image_check:
+                print('Perform image validations...')
+                if input_container_sas is not None:
+                    print('Warning: verifying images on Blob Container can be time-consuming')
+                valid_idxs = [i for i,o in enumerate(parallel(partial(_verify_images,input_container_sas=input_container_sas), inputs, n_workers=4)) if o]
+                if len(valid_idxs)<len(inputs):
+                    print(f'There is/are {len(inputs)-len(valid_idxs)} invalid input(s), out of {len(inputs)} inputs')
+                else:
+                    print(f'All {len(inputs)} inputs are valid')
+        
+            blocks = ImageBlock(PILImageClass)
+        else:
+            raise Exception('Unknown input type')
+
+        datablock = DataBlock(blocks = blocks,
+                              item_tfms = self.item_tfms,
+                              batch_tfms = self.aug_tfms,
+                              splitter = lambda x: (L(0),L(list(torch.arange(len(valid_idxs)).numpy())))
+                             )
+        dls = DataLoaders.from_dblock(datablock,
+                                      inputs[valid_idxs],
+                                      bs=batch_size,
+                                      shuffle=False)
+        
+        learner = Learner(dls,self.model,loss_func = CrossEntropyLossFlat())
+        _ = learner.load(self.finetuned_model)
+
+        if tta_n>0:
+            preds = learner.tta(dl = dls.valid,n=tta_n)[0]
+        else:
+            preds = learner.get_preds(dl = dls.valid)[0]
+
+        preds = torch.round(preds,decimals = prob_round)
+        preds,pred_idxs = preds.sort(dim=1,descending=True)
+        preds = preds[:,:pred_topn]
+        pred_idxs = pred_idxs[:,:pred_topn]
+        
+        return self.create_output_df(inputs,preds,pred_idxs,valid_idxs,name_output)
