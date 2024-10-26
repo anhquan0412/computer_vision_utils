@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -11,10 +12,10 @@ import io
 import json
 from megadetector.detection.run_detector import load_detector
 from megadetector.visualization import visualization_utils as md_viz
-
+from megadetector.utils.ct_utils import truncate_float,truncate_float_array
 from .viz_utils import visualize_images
-from .common_utils import value_counts_both
-
+from .common_utils import value_counts_both, dataframe_apply_parallel
+from .fastai_utils import EffNetClassificationInference
 
 
 
@@ -64,7 +65,7 @@ def extract_images(absolute_paths,species,extracted_dir,extracted_folder = 'Extr
 def mdv5_json_to_df(json_file):
     # Example of Megadetector JSON file, version 1.4
     # https://github.com/agentmorris/MegaDetector/blob/main/megadetector/api/batch_processing/README.md
-
+    # Did not include the classification part yet
     results=[]
     for img in json_file['images']:
         img_file = img['file']
@@ -81,6 +82,9 @@ def mdv5_json_to_df(json_file):
     df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank','failure'])
     return df
 
+def df_to_mdv5_classification_json(df,class_thres=0.3):
+    df = df.dropna(subset='file')
+    return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_thres=class_thres))
 
 def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     # get bbox count and ranking based on detection confidence
@@ -191,3 +195,91 @@ class MegaDetectorInference:
             results = mdv5_json_to_df({'images':results})
         
         return results
+    
+
+def _create_detections(df,class_thres=0):
+    if isinstance(df, pd.Series): df = df.to_frame().T
+    
+    pred_n = len([c for c in df.columns if 'pred' in c])
+    detections=[]
+    for f,cat,conf,bbox,fa,*predprobs in df[['file','detection_category','detection_conf','detection_bbox','failure']+\
+                                           [f'pred_{i+1}' for i in range(pred_n)]+\
+                                           [f'prob_{i+1}' for i in range(pred_n)]].values:
+        if fa is not None and fa is not np.NaN:
+            return {"file":f, "failure": str(fa)}
+        if cat is None or cat is np.NaN:
+            return {"file":f, "detections": []}
+        _inner={}
+        _inner["category"]=str(int(cat))
+        _inner["conf"]=truncate_float(conf,precision=3)
+        _inner["bbox"]=truncate_float_array(bbox,precision=4)
+        if len(predprobs):
+            class_results=[]
+            for i in range(pred_n):
+                _pred,_prob=predprobs[i],predprobs[i+pred_n]
+                if _prob>=class_thres:
+                    class_results.append([str(int(_pred)),truncate_float(_prob,precision=3)])
+            if len(class_results):
+                _inner["classifications"]=class_results
+        detections.append(_inner)
+    return {"file":f, "detections":detections}
+
+
+class DetectAndClassify:
+    def __init__(self, 
+                 md_path, # absolute path to megadetector weight
+                 finetuned_model=None, # absolute path to efficient model that has been finetuned
+                 label_names=None, # list of output labels
+                 item_tfms=None, # list of item transformations
+                 efficient_model='efficientnet-b3', # name of pretrained efficient model
+                 aug_tfms=None, # augmentation transformations, needed if TTA is used
+                ):
+        self.md_inference = MegaDetectorInference(md_path)
+        self.class_inference = None
+        if finetuned_model is not None and label_names is not None:
+            self.class_inference = EffNetClassificationInference(efficient_model,finetuned_model,label_names,item_tfms,aug_tfms)
+
+    def predict(self,
+                img_paths, # list of absolute image paths if not using SAS key, relative paths otherwise, or list of URLs
+                input_container_sas=None, # to get images from a Azure blob container
+                md_threshold=0.1, # megadetector bbox confidence threshold, for NMS
+                checkpoint_path=None, # absolute path to save check point
+                checkpoint_frequency=0, # write results to JSON checkpoint file every n images, set 0 to disable
+                classify_batch_size=16, # batch size for classification model
+                tta_n=0, # whether to perform test time augmentation, and how many
+                pred_topn=1, # to return top n predictions
+                prob_round=3, # number of decimal points to round the probability
+                class_thres=0.3 # the probability threshold to keep in the JSON file output
+               ):
+        md_result = self.md_inference.predict(img_paths,input_container_sas,md_threshold,
+                                          checkpoint_path,checkpoint_frequency,
+                                          convert_to_df=self.class_inference is not None)
+        # file	detection_category	detection_bbox	detection_conf	bbox_rank	failure
+        
+        if self.class_inference is None:
+            return md_result
+        
+        md_result_valid = md_result[~md_result['detection_bbox'].isna()].copy()
+        c_result = self.class_inference.predict(md_result_valid,
+                                                input_container_sas=input_container_sas,
+                                                batch_size=classify_batch_size,
+                                                tta_n=tta_n,
+                                                pred_topn=pred_topn,
+                                                name_output=False,
+                                                prob_round=prob_round
+                                                )
+        # file	detection_bbox	pred_1	pred_2	prob_1	prob_2
+        
+        c_result = c_result.set_index(md_result_valid.index.values)
+        c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1)
+        # file	detection_category	detection_bbox	detection_conf	bbox_rank failure pred_1	pred_2	prob_1	prob_2
+        
+        return df_to_mdv5_classification_json(c_result,class_thres=class_thres)
+
+
+
+        
+        
+        
+                 
+                 

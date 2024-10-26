@@ -2,8 +2,14 @@ import pandas as pd
 from pathlib import Path
 import os
 import json
-import numpy as np
-import math
+from multiprocessing import Pool, cpu_count
+
+def dataframe_apply_parallel(dfGrouped, func,n_workers=None):
+    # https://stackoverflow.com/questions/26187759/parallelize-apply-after-pandas-groupby
+    if n_workers is None: n_workers=cpu_count()
+    with Pool(n_workers) as p:
+        ret_list = p.map(func, [group for name, group in dfGrouped])
+    return ret_list
 
 def read_excel(path,sheet_int=0):
     return pd.read_excel(path,sheet_name=sheet_int)

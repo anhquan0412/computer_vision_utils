@@ -7,15 +7,16 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='cv_utils',
-    version='0.1.7',
+    version='0.1.8',
     packages=find_packages(),
     install_requires=[
+        'megadetector==5.0.20',
+        #'fastai',
         'numpy',
         'pandas',
         'tqdm',
         'Pillow',
         'matplotlib',
-        'megadetector==5.0.20',
     ],
     entry_points={
         'console_scripts': [
