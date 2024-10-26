@@ -299,6 +299,7 @@ class EffNetClassificationInference:
         if not isinstance(inputs, Iterable) or isinstance(inputs,str):
             inputs = np.array([inputs])
         if isinstance(inputs, pd.DataFrame):
+            inputs = inputs.copy()
             inputs = self.validate_df(inputs)
         if len(inputs)==0: return pd.DataFrame()
         
