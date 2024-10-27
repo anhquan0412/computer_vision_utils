@@ -229,15 +229,19 @@ class DetectAndClassify:
     def __init__(self, 
                  md_path, # absolute path to megadetector weight
                  finetuned_model=None, # absolute path to efficient model that has been finetuned
-                 label_names=None, # list of output labels
+                 label_info=None, # list of output labels, or number of labels
                  item_tfms=None, # list of item transformations
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
-        if finetuned_model is not None and label_names is not None:
-            self.class_inference = EffNetClassificationInference(efficient_model,finetuned_model,label_names,item_tfms,aug_tfms)
+        if finetuned_model is not None and label_info is not None:
+            self.class_inference = EffNetClassificationInference(label_info=label_info,
+                                                                 efficient_model=efficient_model,
+                                                                 finetuned_model=finetuned_model,
+                                                                 item_tfms=item_tfms,
+                                                                 aug_tfms=aug_tfms)
 
     def predict(self,
                 img_paths, # list of absolute image paths if not using SAS key, relative paths otherwise, or list of URLs

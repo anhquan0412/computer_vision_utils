@@ -241,19 +241,20 @@ def _verify_images(inps,input_container_sas=None):
 
 class EffNetClassificationInference:
     def __init__(self,
+                 label_info, # list of output labels, or the number of labels
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
                  finetuned_model=None, # absolute path to efficient model that has been finetuned
-                 label_names=None, # list of output labels
                  item_tfms=Resize(750), # list of item transformations
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                 ):
-        self.label_names = label_names
+        self.label_info = label_info
         finetuned_model = Path(finetuned_model)
         finetuned_model = finetuned_model.parent/finetuned_model.stem
         self.finetuned_model = finetuned_model
         self.item_tfms = item_tfms
         self.aug_tfms = aug_tfms
-        self.model = EfficientNet.from_pretrained(efficient_model,num_classes=len(label_names))
+        self.model = EfficientNet.from_pretrained(efficient_model,
+                                                  num_classes=label_info if isinstance(label_info,int) else len(label_info))
 
     def validate_df(self,df):
         if 'file' in df.columns.tolist():
@@ -276,8 +277,8 @@ class EffNetClassificationInference:
 
         top_n = preds.shape[1]
         df_pred = pd.DataFrame(pred_idxs,columns=[f'pred_{i+1}' for i in range(top_n)])
-        if name_output:
-            df_pred = df_pred.map(lambda x: self.label_names[x])            
+        if name_output and isinstance(self.label_info,(list,tuple,np.ndarray)):
+            df_pred = df_pred.map(lambda x: self.label_info[x])            
         df_prob = pd.DataFrame(preds,columns=[f'prob_{i+1}' for i in range(top_n)])
         
         df_pred.index=valid_idxs
