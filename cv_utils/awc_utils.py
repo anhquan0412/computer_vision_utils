@@ -263,7 +263,10 @@ class DetectAndClassify:
         if self.class_inference is None:
             return md_result
         
-        md_result_valid = md_result[~md_result['detection_bbox'].isna()].copy()
+        md_result_valid = md_result[(~md_result['detection_bbox'].isna()) & (~md_result['detection_category'].isna())].copy()
+
+        # filter animal images (cat_id is 1) only
+        md_result_valid = md_result_valid[md_result_valid['detection_category'].astype(int).isin([1])].copy()
         c_result = self.class_inference.predict(md_result_valid,
                                                 input_container_sas=input_container_sas,
                                                 batch_size=classify_batch_size,
