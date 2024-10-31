@@ -82,6 +82,35 @@ def mdv5_json_to_df(json_file):
     df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank','failure'])
     return df
 
+
+def _create_detections(df,class_thres=0):
+    if isinstance(df, pd.Series): df = df.to_frame().T
+    
+    pred_n = len([c for c in df.columns if 'pred' in c])
+    detections=[]
+    for f,cat,conf,bbox,fa,*predprobs in df[['file','detection_category','detection_conf','detection_bbox','failure']+\
+                                           [f'pred_{i+1}' for i in range(pred_n)]+\
+                                           [f'prob_{i+1}' for i in range(pred_n)]].values:
+        if fa is not None and fa is not np.NaN:
+            return {"file":f, "failure": str(fa)}
+        if cat is None or cat is np.NaN:
+            return {"file":f, "detections": []}
+        _inner={}
+        _inner["category"]=str(int(cat))
+        _inner["conf"]=truncate_float(conf,precision=3)
+        _inner["bbox"]=truncate_float_array(bbox,precision=4)
+        if len(predprobs):
+            class_results=[]
+            for i in range(pred_n):
+                _pred,_prob=predprobs[i],predprobs[i+pred_n]
+                if _prob>=class_thres:
+                    class_results.append([str(int(_pred)),truncate_float(_prob,precision=3)])
+            if len(class_results):
+                _inner["classifications"]=class_results
+        detections.append(_inner)
+    return {"file":f, "detections":detections}
+
+
 def df_to_mdv5_classification_json(df,class_thres=0.3):
     df = df.dropna(subset='file')
     return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_thres=class_thres))
@@ -197,34 +226,6 @@ class MegaDetectorInference:
         return results
     
 
-def _create_detections(df,class_thres=0):
-    if isinstance(df, pd.Series): df = df.to_frame().T
-    
-    pred_n = len([c for c in df.columns if 'pred' in c])
-    detections=[]
-    for f,cat,conf,bbox,fa,*predprobs in df[['file','detection_category','detection_conf','detection_bbox','failure']+\
-                                           [f'pred_{i+1}' for i in range(pred_n)]+\
-                                           [f'prob_{i+1}' for i in range(pred_n)]].values:
-        if fa is not None and fa is not np.NaN:
-            return {"file":f, "failure": str(fa)}
-        if cat is None or cat is np.NaN:
-            return {"file":f, "detections": []}
-        _inner={}
-        _inner["category"]=str(int(cat))
-        _inner["conf"]=truncate_float(conf,precision=3)
-        _inner["bbox"]=truncate_float_array(bbox,precision=4)
-        if len(predprobs):
-            class_results=[]
-            for i in range(pred_n):
-                _pred,_prob=predprobs[i],predprobs[i+pred_n]
-                if _prob>=class_thres:
-                    class_results.append([str(int(_pred)),truncate_float(_prob,precision=3)])
-            if len(class_results):
-                _inner["classifications"]=class_results
-        detections.append(_inner)
-    return {"file":f, "detections":detections}
-
-
 class DetectAndClassify:
     def __init__(self, 
                  md_path, # absolute path to megadetector weight
@@ -263,7 +264,7 @@ class DetectAndClassify:
         if self.class_inference is None:
             return md_result
         
-        md_result_valid = md_result[(~md_result['detection_bbox'].isna()) & (~md_result['detection_category'].isna())].copy()
+        md_result_valid = md_result[(~md_result['detection_bbox'].isna()) & (~md_result['detection_category'].isna())]
 
         # filter animal images (cat_id is 1) only
         md_result_valid = md_result_valid[md_result_valid['detection_category'].astype(int).isin([1])].copy()
@@ -278,7 +279,7 @@ class DetectAndClassify:
         # file	detection_bbox	pred_1	pred_2	prob_1	prob_2
         
         c_result = c_result.set_index(md_result_valid.index.values)
-        c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1)
+        c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
         # file	detection_category	detection_bbox	detection_conf	bbox_rank failure pred_1	pred_2	prob_1	prob_2
         
         return df_to_mdv5_classification_json(c_result,class_thres=class_thres)
