@@ -242,8 +242,8 @@ def _verify_images(inps,input_container_sas=None):
 class EffNetClassificationInference:
     def __init__(self,
                  label_info, # list of output labels, or the number of labels
+                 finetuned_model, # absolute path to efficient model that has been finetuned
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
-                 finetuned_model=None, # absolute path to efficient model that has been finetuned
                  item_tfms=Resize(750), # list of item transformations
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                 ):
@@ -254,6 +254,7 @@ class EffNetClassificationInference:
         self.item_tfms = item_tfms
         self.aug_tfms = aug_tfms
         self.model = EfficientNet.from_pretrained(efficient_model,
+                                                  weights_path=str(finetuned_model)+'.pth',
                                                   num_classes=label_info if isinstance(label_info,int) else len(label_info))
 
     def validate_df(self,df):
