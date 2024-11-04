@@ -111,9 +111,11 @@ def _create_detections(df,class_thres=0):
     return {"file":f, "detections":detections}
 
 
-def df_to_mdv5_classification_json(df,class_thres=0.3):
+def df_to_mdv5_classification_json(df,class_thres=0.3,n_workers=None):
     df = df.dropna(subset='file')
-    return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_thres=class_thres))
+    if n_workers==1:
+        return df.groupby('file').apply(_create_detections,class_thres=class_thres)
+    return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_thres=class_thres),n_workers=n_workers)
 
 def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     # get bbox count and ranking based on detection confidence
@@ -254,7 +256,9 @@ class DetectAndClassify:
                 tta_n=0, # whether to perform test time augmentation, and how many
                 pred_topn=1, # to return top n predictions
                 prob_round=3, # number of decimal points to round the probability
-                class_thres=0.3 # the probability threshold to keep in the JSON file output
+                class_thres=0.3, # the probability threshold to keep in the JSON file output,
+                n_workers=None, # number of workers to use for parallel processing
+                pin_memory=False # If True, the data loader (classification only) will copy Tensors into CUDA pinned memory before returning them
                ):
         md_result = self.md_inference.predict(img_paths,input_container_sas,md_threshold,
                                           checkpoint_path,checkpoint_frequency,
@@ -274,7 +278,8 @@ class DetectAndClassify:
                                                 tta_n=tta_n,
                                                 pred_topn=pred_topn,
                                                 name_output=False,
-                                                prob_round=prob_round
+                                                prob_round=prob_round,
+                                                n_workers=n_workers
                                                 )
         # file	detection_bbox	pred_1	pred_2	prob_1	prob_2
         
@@ -282,7 +287,7 @@ class DetectAndClassify:
         c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
         # file	detection_category	detection_bbox	detection_conf	bbox_rank failure pred_1	pred_2	prob_1	prob_2
         
-        return df_to_mdv5_classification_json(c_result,class_thres=class_thres)
+        return df_to_mdv5_classification_json(c_result,class_thres=class_thres,n_workers=n_workers)
 
 
 

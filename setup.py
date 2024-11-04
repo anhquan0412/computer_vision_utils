@@ -7,7 +7,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='cv_utils',
-    version='0.1.8',
+    version='0.1.9',
     packages=find_packages(),
     install_requires=[
         'megadetector==5.0.20',

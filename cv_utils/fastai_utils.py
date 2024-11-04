@@ -13,7 +13,8 @@ from azure.storage.blob import ContainerClient
 import os
 import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image
-from efficientnet_pytorch import EfficientNet 
+from efficientnet_pytorch import EfficientNet
+from multiprocessing import cpu_count
 
 def bold_print(txt):
     print(f"{'='*20} {txt.upper()} {'='*20}")  
@@ -297,6 +298,8 @@ class EffNetClassificationInference:
                 name_output=True, # whether to return the label names instead of label indices
                 prob_round=3, # number of decimal points to round the probability
                 do_image_check=False, # to check whether input images can be opened. Note: without this, invalid images will interrupt the prediction process
+                n_workers=1, # number of workers for parallel processing (image verification and dataloaders). None for all, up to 16
+                pin_memory=False # If True, the data loader will copy Tensors into CUDA pinned memory before returning them
                ):
         if not isinstance(inputs, Iterable) or isinstance(inputs,str):
             inputs = np.array([inputs])
@@ -320,7 +323,11 @@ class EffNetClassificationInference:
                 print('Perform image validations...')
                 if input_container_sas is not None:
                     print('Warning: verifying images on Blob Container can be time-consuming')
-                valid_idxs = [i for i,o in enumerate(parallel(partial(_verify_images,input_container_sas=input_container_sas), inputs, n_workers=4)) if o]
+                if n_workers==1:
+                    valid_idxs = [i for i,o in enumerate(inputs) if _verify_images(o,input_container_sas)]
+                else:
+                    if n_workers is None: n_workers=min(16,cpu_count())
+                    valid_idxs = [i for i,o in enumerate(parallel(partial(_verify_images,input_container_sas=input_container_sas), inputs, n_workers=n_workers)) if o]
                 if len(valid_idxs)<len(inputs):
                     print(f'There is/are {len(inputs)-len(valid_idxs)} invalid input(s), out of {len(inputs)} inputs')
                 else:
@@ -338,6 +345,8 @@ class EffNetClassificationInference:
         dls = DataLoaders.from_dblock(datablock,
                                       inputs[valid_idxs],
                                       bs=batch_size,
+                                      num_workers=n_workers,
+                                      pin_memory=pin_memory,
                                       shuffle=False)
         
         learner = Learner(dls,self.model,loss_func = CrossEntropyLossFlat())

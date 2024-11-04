@@ -6,7 +6,7 @@ from multiprocessing import Pool, cpu_count
 
 def dataframe_apply_parallel(dfGrouped, func,n_workers=None):
     # https://stackoverflow.com/questions/26187759/parallelize-apply-after-pandas-groupby
-    if n_workers is None: n_workers=cpu_count()
+    if n_workers is None: n_workers=min(16,cpu_count())
     with Pool(n_workers) as p:
         ret_list = p.map(func, [group for name, group in dfGrouped])
     return ret_list
