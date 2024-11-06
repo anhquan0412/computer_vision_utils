@@ -132,11 +132,13 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
         # check whether bbox coord is the input
         if isinstance(df.iloc[0,0],(list,tuple)) and len(df.iloc[0,0])==2 and len(df.iloc[0,0][1])==4:
             PILImageClass = PILImageFactory()
+            col_reader = ColMDReader(fn_col, pref=pref, suff=suff)
         else:
             PILImageClass = PILImage
+            col_reader = ColReader(fn_col, pref=pref, suff=suff)
 
         dblock = DataBlock(blocks=(ImageBlock(PILImageClass), y_block),
-                           get_x=ColMDReader(fn_col, pref=pref, suff=suff),
+                           get_x=col_reader,
                            get_y=ColReader(label_col, label_delim=label_delim),
                            splitter=splitter,
                            item_tfms=item_tfms,
