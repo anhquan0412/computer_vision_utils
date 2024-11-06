@@ -100,6 +100,49 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
 
+    class ColMDReader(DisplayedTransform):
+        "Read `cols` in `row` with potential `pref` and `suff`"
+        def __init__(self, cols, pref='', suff='', label_delim=None):
+            store_attr()
+            self.pref = str(pref) + os.path.sep if isinstance(pref, Path) else pref
+            self.cols = L(cols)
+
+        def _do_one(self, r, c):
+            o = r[c] if isinstance(c, int) or not c in getattr(r, '_fields', []) else getattr(r, c)
+            # o is a tuple of (relative_path, bbox_coords)
+            if len(self.pref)==0 and len(self.suff)==0 and self.label_delim is None: return o
+
+            return f'{self.pref}{o[0]}{self.suff}' # get the first element of the tuple, which is the path. 
+            
+
+        def __call__(self, o, **kwargs):
+            if len(self.cols) == 1: return self._do_one(o, self.cols[0])
+            return L(self._do_one(o, c) for c in self.cols)
+        
+    def ImageDataLoaders_from_df(df, path='.', valid_pct=0.2, seed=None, fn_col=0, folder=None, suff='', label_col=1, label_delim=None,
+                y_block=None, valid_col=None, item_tfms=None, batch_tfms=None, img_cls=PILImage, **kwargs):
+        "Create from `df` in `path` using `fn_col` and `label_col`"
+        pref = f'{Path(path) if folder is None else Path(path)/folder}{os.path.sep}'
+        
+        if y_block is None:
+            is_multi = (is_listy(label_col) and len(label_col) > 1) or label_delim is not None
+            y_block = MultiCategoryBlock if is_multi else CategoryBlock
+        splitter = RandomSplitter(valid_pct, seed=seed) if valid_col is None else ColSplitter(valid_col)
+
+        # check whether bbox coord is the input
+        if isinstance(df.iloc[0,0],(list,tuple)) and len(df.iloc[0,0])==2 and len(df.iloc[0,0][1])==4:
+            PILImageClass = PILImageFactory()
+        else:
+            PILImageClass = PILImage
+
+        dblock = DataBlock(blocks=(ImageBlock(PILImageClass), y_block),
+                           get_x=ColMDReader(fn_col, pref=pref, suff=suff),
+                           get_y=ColReader(label_col, label_delim=label_delim),
+                           splitter=splitter,
+                           item_tfms=item_tfms,
+                           batch_tfms=batch_tfms)
+        return ImageDataLoaders.from_dblock(dblock, df, path=path, **kwargs)
+    
     use_wandb = 'WANDB_PROJECT' in config
 
     if 'SEED' in config:
@@ -108,12 +151,8 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     else:
         seed=None
     
-    # check whether bbox coord is the input
-    if isinstance(df.iloc[0,0],(list,tuple)) and len(df.iloc[0,0])==2 and len(df.iloc[0,0][1])==4:
-        PILImageClass = PILImageFactory()
-    else:
-        PILImageClass = PILImage    
-    dls = ImageDataLoaders.from_df(df, 
+
+    dls = ImageDataLoaders_from_df(df, 
                                    path=config['IMAGE_DIRECTORY'],
                                    seed=seed,
                                    fn_col=0,
@@ -122,8 +161,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                                    item_tfms= Resize(config['ITEM_RESIZE']) if 'ITEM_RESIZE' in config else Resize(750),
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
-                                   batch_tfms=aug_tfms,
-                                   img_cls=PILImageClass
+                                   batch_tfms=aug_tfms
                                   )
         
     if not label_names:
