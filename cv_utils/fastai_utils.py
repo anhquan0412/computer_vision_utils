@@ -95,10 +95,10 @@ def PILImageFactory(container_client=None):
  
     return PILMDImage
 
-def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
+def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False,mixup_alpha=None):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
-    # The third column is the 'is_val' split (boolean)
+    # There is a column called 'is_val', for train val split (boolean)
 
     use_wandb = 'WANDB_PROJECT' in config
 
@@ -146,6 +146,9 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                               ),
             CSVLogger(fname=(save_directory/f"{save_name}_training_log.csv"), append=True)
         ]
+    
+    if mixup_alpha is not None:
+        cbs.append(MixUp(mixup_alpha))
     
     if use_wandb:
         os.environ["WANDB_SILENT"] = "true"
