@@ -67,8 +67,36 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
         return 
     return df_pred
 
+def _download_img_tiny(input_container_client,inp):
+    if input_container_client is not None:
+        downloader = input_container_client.download_blob(inp)
+        inp = io.BytesIO()
+        blob_props = downloader.download_to_stream(inp)
+    return inp
+
+
+def PILImageFactory(container_client=None):
+    class PILMDImage(PILBase):
+        # Blob client variable
+        input_container_client=container_client
+        
+        @classmethod
+        def create(cls, inps, **kwargs):
+            if not isinstance(inps,str):
+                inps = list(inps)
+                inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
+                img = PILImage.create(inps[0])
+                norm_bbox = inps[1]
+                img = crop_image(img,norm_bbox,square_crop=True)
+                return PILImage.create(img)
+
+            inps = _download_img_tiny(PILMDImage.input_container_client,inps)
+            return PILImage.create(inps)
+ 
+    return PILMDImage
+
 def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
-    # The first column of df should be the file path
+    # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # The third column is the 'is_val' split (boolean)
 
@@ -80,6 +108,11 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     else:
         seed=None
     
+    # check whether bbox coord is the input
+    if isinstance(df.iloc[0,0],(list,tuple)) and len(df.iloc[0,0])==2 and len(df.iloc[0,0][1])==4:
+        PILImageClass = PILImageFactory()
+    else:
+        PILImageClass = PILImage    
     dls = ImageDataLoaders.from_df(df, 
                                    path=config['IMAGE_DIRECTORY'],
                                    seed=seed,
@@ -89,7 +122,8 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                                    item_tfms= Resize(config['ITEM_RESIZE']) if 'ITEM_RESIZE' in config else Resize(750),
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
-                                   batch_tfms=aug_tfms
+                                   batch_tfms=aug_tfms,
+                                   img_cls=PILImageClass
                                   )
         
     if not label_names:
@@ -188,35 +222,6 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 # df = df.sample(9000,random_state=42,ignore_index=True)
 # _ = fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
 
-
-
-def _download_img_tiny(input_container_client,inp):
-    if input_container_client is not None:
-        downloader = input_container_client.download_blob(inp)
-        inp = io.BytesIO()
-        blob_props = downloader.download_to_stream(inp)
-    return inp
-
-
-def PILImageFactory(container_client=None):
-    class PILMDImage(PILBase):
-        # Blob client variable
-        input_container_client=container_client
-        
-        @classmethod
-        def create(cls, inps, **kwargs):
-            if not isinstance(inps,str):
-                inps = list(inps)
-                inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
-                img = PILImage.create(inps[0])
-                norm_bbox = inps[1]
-                img = crop_image(img,norm_bbox,square_crop=True)
-                return PILImage.create(img)
-
-            inps = _download_img_tiny(PILMDImage.input_container_client,inps)
-            return PILImage.create(inps)
- 
-    return PILMDImage
 
 def _verify_images(inps,input_container_sas=None):    
     try:
