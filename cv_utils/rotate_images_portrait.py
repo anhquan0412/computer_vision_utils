@@ -14,11 +14,11 @@ def rotate_image(img_path, source_dir, destination_dir=None, rotate_left=True):
     
     with Image.open(img_path) as img:
         width, height = img.size
+        relative_path = img_path.relative_to(source_dir)
+        dest_path = destination_dir/relative_path
+        dest_path.parent.mkdir(exist_ok=True,parents=True)
         if width > height:
             img = img.rotate(90 if rotate_left else -90, expand=True)
-            relative_path = img_path.relative_to(source_dir)
-            dest_path = destination_dir/relative_path
-            dest_path.parent.mkdir(exist_ok=True,parents=True)
         img.save(dest_path)
 
 def rotate_images_to_portrait(source_folder, destination_folder=None, rotate_left=True, max_workers=1):
