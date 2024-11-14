@@ -11,12 +11,14 @@ setup(
     packages=find_packages(),
     install_requires=[
         'megadetector==5.0.20',
-        #'fastai',
-        'numpy',
-        'pandas',
+        'fastai',
+        # 'numpy',
+        # 'pandas',
         'tqdm',
         'Pillow',
         'matplotlib',
+        'wandb',
+        'efficientnet-pytorch'
     ],
     entry_points={
         'console_scripts': [
