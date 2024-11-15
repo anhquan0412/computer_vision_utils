@@ -153,6 +153,17 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     else:
         seed=None
     
+    _item_tfms = Resize(750)
+    if 'ITEM_RESIZE' in config:
+        if isinstance(config['ITEM_RESIZE'],int):
+            _item_tfms = Resize(config['ITEM_RESIZE'])
+        elif isinstance(config['ITEM_RESIZE'],str) and not config['ITEM_RESIZE'].lower().strip() in ['none','']:
+            try:
+                _item_tfms = Resize(int(config['ITEM_RESIZE']))
+            except:
+                _item_tfms = Resize(750)            
+        else:
+            _item_tfms = config['ITEM_RESIZE']
 
     dls = ImageDataLoaders_from_df(df, 
                                    path=config['IMAGE_DIRECTORY'],
@@ -160,7 +171,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                                    fn_col=0,
                                    label_col=1,
                                    valid_col='is_val',
-                                   item_tfms= Resize(config['ITEM_RESIZE']) if 'ITEM_RESIZE' in config else Resize(750),
+                                   item_tfms= _item_tfms,
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
                                    batch_tfms=aug_tfms
