@@ -299,6 +299,54 @@ def _verify_images(inps,input_container_sas=None):
     else:
         return True
 
+def prepare_inference_dataloader(inputs,
+                                 input_container_sas=None,
+                                 do_image_check=False,
+                                 item_tfms=None,
+                                 aug_tfms=None,
+                                 batch_size=16,
+                                 pin_memory=False,
+                                 n_workers=1):
+
+    if isinstance(inputs[0],str) or (len(inputs[0])==2 and isinstance(inputs[0][0],str) and len(inputs[0][1])==4):
+        inputs = np.array(inputs)
+        input_container_client=None
+        if input_container_sas is not None:
+            input_container_client = ContainerClient.from_container_url(input_container_sas)
+
+        PILImageClass = PILImageFactory(container_client=input_container_client)
+        # check for imgs that can be opened only
+        valid_idxs = list(range(len(inputs)))
+        if do_image_check:
+            print('Perform image validations...')
+            if input_container_sas is not None:
+                print('Warning: verifying images on Blob Container can be time-consuming')
+            if n_workers==1:
+                valid_idxs = [i for i,o in enumerate(inputs) if _verify_images(o,input_container_sas)]
+            else:
+                if n_workers is None: n_workers=min(16,cpu_count())
+                valid_idxs = [i for i,o in enumerate(parallel(partial(_verify_images,input_container_sas=input_container_sas), inputs, n_workers=n_workers)) if o]
+            if len(valid_idxs)<len(inputs):
+                print(f'There is/are {len(inputs)-len(valid_idxs)} invalid input(s), out of {len(inputs)} inputs')
+            else:
+                print(f'All {len(inputs)} inputs are valid')
+    
+        blocks = ImageBlock(PILImageClass)
+    else:
+        raise Exception('Unknown input type')
+
+    datablock = DataBlock(blocks = blocks,
+                          item_tfms = item_tfms,
+                          batch_tfms = aug_tfms,
+                          splitter = lambda x: (L(0),L(list(torch.arange(len(valid_idxs)).numpy())))
+                          )
+    dls = DataLoaders.from_dblock(datablock,
+                                  inputs[valid_idxs],
+                                  bs=batch_size,
+                                  num_workers=n_workers,
+                                  pin_memory=pin_memory,
+                                  shuffle=False)
+    return dls,valid_idxs
 
 class EffNetClassificationInference:
     def __init__(self,
@@ -368,47 +416,15 @@ class EffNetClassificationInference:
             inputs = self.validate_df(inputs)
         if len(inputs)==0: return pd.DataFrame()
         
-
-        if isinstance(inputs[0],str) or (len(inputs[0])==2 and isinstance(inputs[0][0],str) and len(inputs[0][1])==4):
-            inputs = np.array(inputs)
-            
-            input_container_client=None
-            if input_container_sas is not None:
-                input_container_client = ContainerClient.from_container_url(input_container_sas)
-
-            PILImageClass = PILImageFactory(container_client=input_container_client)
-            # check for imgs that can be opened only
-            valid_idxs = list(range(len(inputs)))
-            if do_image_check:
-                print('Perform image validations...')
-                if input_container_sas is not None:
-                    print('Warning: verifying images on Blob Container can be time-consuming')
-                if n_workers==1:
-                    valid_idxs = [i for i,o in enumerate(inputs) if _verify_images(o,input_container_sas)]
-                else:
-                    if n_workers is None: n_workers=min(16,cpu_count())
-                    valid_idxs = [i for i,o in enumerate(parallel(partial(_verify_images,input_container_sas=input_container_sas), inputs, n_workers=n_workers)) if o]
-                if len(valid_idxs)<len(inputs):
-                    print(f'There is/are {len(inputs)-len(valid_idxs)} invalid input(s), out of {len(inputs)} inputs')
-                else:
-                    print(f'All {len(inputs)} inputs are valid')
-        
-            blocks = ImageBlock(PILImageClass)
-        else:
-            raise Exception('Unknown input type')
-
-        datablock = DataBlock(blocks = blocks,
-                              item_tfms = self.item_tfms,
-                              batch_tfms = self.aug_tfms,
-                              splitter = lambda x: (L(0),L(list(torch.arange(len(valid_idxs)).numpy())))
-                             )
-        dls = DataLoaders.from_dblock(datablock,
-                                      inputs[valid_idxs],
-                                      bs=batch_size,
-                                      num_workers=n_workers,
-                                      pin_memory=pin_memory,
-                                      shuffle=False)
-        
+        dls,valid_idxs = prepare_inference_dataloader(inputs,
+                                                      input_container_sas=input_container_sas,
+                                                      do_image_check=do_image_check,
+                                                      item_tfms=self.item_tfms,
+                                                      aug_tfms=self.aug_tfms,
+                                                      batch_size=batch_size,
+                                                      pin_memory=pin_memory,
+                                                      n_workers=n_workers)
+                                                      
         learner = Learner(dls,self.model,loss_func = CrossEntropyLossFlat())
         _ = learner.load(self.finetuned_model)
 
