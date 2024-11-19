@@ -258,10 +258,11 @@ class DetectAndClassify:
                 prob_round=3, # number of decimal points to round the probability
                 class_thres=0.3, # the probability threshold to keep in the JSON file output,
                 n_workers=None, # number of workers to use for parallel processing
-                pin_memory=False # If True, the data loader (classification only) will copy Tensors into CUDA pinned memory before returning them
+                pin_memory=False, # If True, the data loader (classification only) will copy Tensors into CUDA pinned memory before returning them
+                convert_to_json=True # either to convert the predictions (dataframe) to JSON format
                ):
         md_result = self.md_inference.predict(img_paths,input_container_sas,md_threshold,
-                                          checkpoint_path,checkpoint_frequency,
+                                         checkpoint_path,checkpoint_frequency,
                                           convert_to_df=self.class_inference is not None)
         # file	detection_category	detection_bbox	detection_conf	bbox_rank	failure
         
@@ -279,15 +280,18 @@ class DetectAndClassify:
                                                 pred_topn=pred_topn,
                                                 name_output=False,
                                                 prob_round=prob_round,
-                                                n_workers=n_workers
+                                                n_workers=n_workers,
+                                                pin_memory=pin_memory
                                                 )
         # file	detection_bbox	pred_1	pred_2	prob_1	prob_2
         
         c_result = c_result.set_index(md_result_valid.index.values)
         c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
         # file	detection_category	detection_bbox	detection_conf	bbox_rank failure pred_1	pred_2	prob_1	prob_2
+        if convert_to_json:
+            return df_to_mdv5_classification_json(c_result,class_thres=class_thres,n_workers=n_workers)
         
-        return df_to_mdv5_classification_json(c_result,class_thres=class_thres,n_workers=n_workers)
+        return c_result
 
 
 
