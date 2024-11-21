@@ -63,12 +63,6 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
         return 
     return df_pred
 
-# def _download_img_tiny(input_container_client,inp):
-#     if input_container_client is not None:
-#         downloader = input_container_client.download_blob(inp)
-#         inp = io.BytesIO()
-#         blob_props = downloader.download_to_stream(inp)
-#     return inp
 
 def PILImageFactory(container_client=None):
     class PILMDImage(PILBase):
@@ -80,7 +74,6 @@ def PILImageFactory(container_client=None):
             if isinstance(inps, Iterable) and not isinstance(inps,str):
                 # containing bbox
                 inps = list(inps)
-                # inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
                 inps[0] = download_img(check_and_fix_http_path(inps[0]),
                                        PILMDImage.input_container_client)
                 img = PILImage.create(inps[0])
@@ -88,7 +81,6 @@ def PILImageFactory(container_client=None):
                 img = crop_image(img,norm_bbox,square_crop=True)
                 return PILImage.create(img)
 
-            # inps = _download_img_tiny(PILMDImage.input_container_client,inps)
             inps = download_img(check_and_fix_http_path(inps),
                                 PILMDImage.input_container_client)
             return PILImage.create(inps)
@@ -259,7 +251,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 #     'FREEZE_EPOCH':1,
 #     'LR':0.0021,
 #     'SAVE_NAME':'name_for_this_run',
-#     'SAVE_DIRECTORY':'path/to/save/directory',
+#     'SAVE_DIRECTORY':'absolute/path/to/save/directory',
 #     'SAVE_EVERY_EPOCH':True,
 #     'WANDB_PROJECT':'wandb_project_name',
 #     'LOG_LABEL_METRICS':['precision','f1']
