@@ -3,16 +3,11 @@ from sklearn.metrics import precision_recall_fscore_support
 from fastai.vision.all import *
 from fastai.callback.wandb import *
 from collections.abc import Iterable
-from pathlib import Path
 import ast
-import torch
-import pandas as pd
-import numpy as np
 import wandb
 from azure.storage.blob import ContainerClient
-import os
 import warnings; warnings.simplefilter('ignore')
-from .img_utils import crop_image
+from .img_utils import crop_image, download_img
 from efficientnet_pytorch import EfficientNet
 from multiprocessing import cpu_count
 
@@ -67,12 +62,12 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
         return 
     return df_pred
 
-def _download_img_tiny(input_container_client,inp):
-    if input_container_client is not None:
-        downloader = input_container_client.download_blob(inp)
-        inp = io.BytesIO()
-        blob_props = downloader.download_to_stream(inp)
-    return inp
+# def _download_img_tiny(input_container_client,inp):
+#     if input_container_client is not None:
+#         downloader = input_container_client.download_blob(inp)
+#         inp = io.BytesIO()
+#         blob_props = downloader.download_to_stream(inp)
+#     return inp
 
 
 def PILImageFactory(container_client=None):
@@ -82,15 +77,17 @@ def PILImageFactory(container_client=None):
         
         @classmethod
         def create(cls, inps, **kwargs):
-            if not isinstance(inps,str):
+            if isinstance(inps,(tuple,list)):
                 inps = list(inps)
-                inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
+                # inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
+                inps[0] = download_img(inps[0],PILMDImage.input_container_client)
                 img = PILImage.create(inps[0])
                 norm_bbox = inps[1]
                 img = crop_image(img,norm_bbox,square_crop=True)
                 return PILImage.create(img)
 
-            inps = _download_img_tiny(PILMDImage.input_container_client,inps)
+            # inps = _download_img_tiny(PILMDImage.input_container_client,inps)
+            inps = download_img(inps,PILMDImage.input_container_client)
             return PILImage.create(inps)
  
     return PILMDImage
@@ -285,13 +282,15 @@ def _verify_images(inps,input_container_sas=None):
             input_container_client = ContainerClient.from_container_url(input_container_sas)
         if not isinstance(inps,str):
             inps = list(inps)
-            inps[0] = _download_img_tiny(input_container_client,inps[0])
+            # inps[0] = _download_img_tiny(input_container_client,inps[0])
+            inps[0] = download_img(inps[0],input_container_client)
             img = PILImage.create(inps[0])
             norm_bbox = inps[1]
             img = crop_image(img,norm_bbox,square_crop=True)
             img = PILImage.create(img)
         else:
-            inps = _download_img_tiny(input_container_client,inps)
+            # inps = _download_img_tiny(input_container_client,inps)
+            inps = download_img(inps,input_container_client)
             img = PILImage.create(inps)
     
     except Exception as e:
@@ -424,7 +423,7 @@ class EffNetClassificationInference:
                                                       batch_size=batch_size,
                                                       pin_memory=pin_memory,
                                                       n_workers=n_workers)
-                                                      
+
         learner = Learner(dls,self.model,loss_func = CrossEntropyLossFlat())
         _ = learner.load(self.finetuned_model)
 

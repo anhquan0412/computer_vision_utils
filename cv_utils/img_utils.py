@@ -3,7 +3,7 @@ from PIL import Image, ImageOps
 from megadetector.visualization import visualization_utils as md_viz
 from io import BytesIO
 from typing import Union
-
+import io
 
 def load_local_image(img_path: str |  BinaryIO) -> Optional[Image.Image]:
     """Attempts to load an image from a local path."""
@@ -33,7 +33,16 @@ def load_image_general(input_file: Union[str, BytesIO]) -> Image.Image:
     image.load()
     return image
 
-    
+def download_img(img_file,input_container_client,ignore_exif_rotation=True):
+    use_url = img_file.startswith(('http://', 'https://'))
+    if not use_url and input_container_client is not None:
+        downloader = input_container_client.download_blob(img_file)
+        img_file = io.BytesIO()
+        blob_props = downloader.download_to_stream(img_file)
+
+    img = md_viz.open_image(img_file,ignore_exif_rotation=ignore_exif_rotation)
+    return img
+
 def crop_image(img: Image.Image, bbox_norm: Sequence[float], square_crop: bool) -> Image.Image:
     img_w, img_h = img.size
     xmin = int(bbox_norm[0] * img_w)

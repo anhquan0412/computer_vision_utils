@@ -8,12 +8,10 @@ from tqdm import tqdm
 import time
 from azure.storage.blob import ContainerClient
 import os
-import io
 import json
 from megadetector.detection.run_detector import load_detector
-from megadetector.visualization import visualization_utils as md_viz
 from megadetector.utils.ct_utils import truncate_float,truncate_float_array
-from .viz_utils import visualize_images
+from .viz_utils import visualize_images, download_img
 from .common_utils import value_counts_both, dataframe_apply_parallel
 from .fastai_utils import EffNetClassificationInference
 
@@ -148,18 +146,6 @@ def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsiz
     visualize_images(_tmp.abs_path,to_show,_tmp.detection_bbox,figsize=figsize,fontsize=fontsize)
 
 
-
-def download_img(img_file,input_container_client):
-    use_url = img_file.startswith(('http://', 'https://'))
-    if not use_url and input_container_client is not None:
-        downloader = input_container_client.download_blob(img_file)
-        img_file = io.BytesIO()
-        blob_props = downloader.download_to_stream(img_file)
-
-    img = md_viz.open_image(img_file)
-    return img
-
-
 class MegaDetectorInference:
     def __init__(self,
                  md_path=None, # absolute path to megadetector weight
@@ -240,6 +226,7 @@ class DetectAndClassify:
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
         if finetuned_model is not None and label_info is not None:
+            self.label_info = label_info
             self.class_inference = EffNetClassificationInference(label_info=label_info,
                                                                  efficient_model=efficient_model,
                                                                  finetuned_model=finetuned_model,
@@ -292,11 +279,3 @@ class DetectAndClassify:
             return df_to_mdv5_classification_json(c_result,class_thres=class_thres,n_workers=n_workers)
         
         return c_result
-
-
-
-        
-        
-        
-                 
-                 
