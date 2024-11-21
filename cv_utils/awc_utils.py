@@ -11,7 +11,8 @@ import os
 import json
 from megadetector.detection.run_detector import load_detector
 from megadetector.utils.ct_utils import truncate_float,truncate_float_array
-from .viz_utils import visualize_images, download_img
+from .viz_utils import visualize_images
+from .img_utils import download_img
 from .common_utils import value_counts_both, dataframe_apply_parallel
 from .fastai_utils import EffNetClassificationInference
 
