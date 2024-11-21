@@ -19,7 +19,6 @@ def load_local_image(img_path: str |  BinaryIO) -> Optional[Image.Image]:
     return None
 
 
-
 def load_image_general(input_file: Union[str, BytesIO]) -> Image.Image:
     """Loads the image at input_file as a PIL Image into memory.
     Image.open() used in open_image() is lazy and errors will occur downstream
@@ -33,7 +32,7 @@ def load_image_general(input_file: Union[str, BytesIO]) -> Image.Image:
     image.load()
     return image
 
-def download_img(img_file,input_container_client,ignore_exif_rotation=True):
+def download_img(img_file,input_container_client,ignore_exif_rotation=True,load_img=True):
     use_url = img_file.startswith(('http://', 'https://'))
     if not use_url and input_container_client is not None:
         downloader = input_container_client.download_blob(img_file)
@@ -41,6 +40,8 @@ def download_img(img_file,input_container_client,ignore_exif_rotation=True):
         blob_props = downloader.download_to_stream(img_file)
 
     img = md_viz.open_image(img_file,ignore_exif_rotation=ignore_exif_rotation)
+    if load_img:
+        img.load()
     return img
 
 def crop_image(img: Image.Image, bbox_norm: Sequence[float], square_crop: bool) -> Image.Image:

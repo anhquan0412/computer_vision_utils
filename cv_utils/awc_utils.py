@@ -192,7 +192,7 @@ class MegaDetectorInference:
         for img_path in tqdm(img_paths):
             img_count+=1
             try:
-                img = download_img(img_path,input_container_client)
+                img = download_img(img_path,input_container_client,ignore_exif_rotation=False,load_img=False)
             except Exception as e:
                 print(f'File {img_path}, Download image exception: {e}')
                 result= {'file': img_path,
