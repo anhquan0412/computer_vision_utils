@@ -8,6 +8,7 @@ import wandb
 from azure.storage.blob import ContainerClient
 import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image, download_img
+from .common_utils import check_and_fix_http_path
 from efficientnet_pytorch import EfficientNet
 from multiprocessing import cpu_count
 
@@ -69,7 +70,6 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
 #         blob_props = downloader.download_to_stream(inp)
 #     return inp
 
-
 def PILImageFactory(container_client=None):
     class PILMDImage(PILBase):
         # Blob client variable
@@ -78,16 +78,19 @@ def PILImageFactory(container_client=None):
         @classmethod
         def create(cls, inps, **kwargs):
             if isinstance(inps, Iterable) and not isinstance(inps,str):
+                # containing bbox
                 inps = list(inps)
                 # inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
-                inps[0] = download_img(inps[0],PILMDImage.input_container_client)
+                inps[0] = download_img(check_and_fix_http_path(inps[0]),
+                                       PILMDImage.input_container_client)
                 img = PILImage.create(inps[0])
                 norm_bbox = inps[1]
                 img = crop_image(img,norm_bbox,square_crop=True)
                 return PILImage.create(img)
 
             # inps = _download_img_tiny(PILMDImage.input_container_client,inps)
-            inps = download_img(inps,PILMDImage.input_container_client)
+            inps = download_img(check_and_fix_http_path(inps),
+                                PILMDImage.input_container_client)
             return PILImage.create(inps)
  
     return PILMDImage
@@ -99,6 +102,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 
     class ColMDReader(DisplayedTransform):
         "Read `cols` in `row` with potential `pref` and `suff`"
+        # https://github.com/fastai/fastai/blob/master/fastai/data/transforms.py#L206
         def __init__(self, cols, pref='', suff='', label_delim=None):
             store_attr()
             self.pref = str(pref) + os.path.sep if isinstance(pref, Path) else pref
@@ -108,9 +112,13 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
             o = r[c] if isinstance(c, int) or not c in getattr(r, '_fields', []) else getattr(r, c)
             # o is a tuple of (relative_path, bbox_coords)
             if len(self.pref)==0 and len(self.suff)==0 and self.label_delim is None: return o
-
-            return f'{self.pref}{o[0]}{self.suff}' # get the first element of the tuple, which is the path. 
             
+            if isinstance(o,(list,tuple)) and len(o)==2 and len(o[1])==4:
+                o = o[0] # get the first element of the tuple, which is the path. 
+
+            if self.label_delim is None: return f'{self.pref}{o}{self.suff}'
+            else: return o.split(self.label_delim) if len(o)>0 else []
+                        
 
         def __call__(self, o, **kwargs):
             if len(self.cols) == 1: return self._do_one(o, self.cols[0])
@@ -126,13 +134,8 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
             y_block = MultiCategoryBlock if is_multi else CategoryBlock
         splitter = RandomSplitter(valid_pct, seed=seed) if valid_col is None else ColSplitter(valid_col)
 
-        # check whether bbox coord is the input
-        if isinstance(df.iloc[0,0],(list,tuple)) and len(df.iloc[0,0])==2 and len(df.iloc[0,0][1])==4:
-            PILImageClass = PILImageFactory()
-            col_reader = ColMDReader(fn_col, pref=pref, suff=suff)
-        else:
-            PILImageClass = PILImage
-            col_reader = ColReader(fn_col, pref=pref, suff=suff)
+        PILImageClass = PILImageFactory()
+        col_reader = ColMDReader(fn_col, pref=pref, suff=suff)
 
         dblock = DataBlock(blocks=(ImageBlock(PILImageClass), y_block),
                            get_x=col_reader,

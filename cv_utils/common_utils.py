@@ -51,3 +51,13 @@ def value_counts_both(inps):
         'percentage': inps.value_counts(normalize=True)
         })
 
+
+def check_and_fix_http_path(path):
+    if 'https:/' in path:
+        h_str = 'https:/'
+    elif 'http:/' in path:
+        h_str = 'http:/'
+    else:
+        return path
+    path = path.split(h_str)[1]
+    return f"{h_str}/{path}"
