@@ -77,7 +77,7 @@ def PILImageFactory(container_client=None):
         
         @classmethod
         def create(cls, inps, **kwargs):
-            if isinstance(inps,(tuple,list)):
+            if isinstance(inps, Iterable) and not isinstance(inps,str):
                 inps = list(inps)
                 # inps[0] = _download_img_tiny(PILMDImage.input_container_client,inps[0])
                 inps[0] = download_img(inps[0],PILMDImage.input_container_client)
