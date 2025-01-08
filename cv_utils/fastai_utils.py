@@ -51,8 +51,6 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
     df_pred['y_pred'] = val_pred_str
     df_pred['y_true'] = val_true_str
     df_pred[label_names] = torch.round(val_probs,decimals=5)
-    print(df_pred.head())
-    print(df_val.head())
     if df_val is not None:
         assert len(df_val)==len(df_pred)
         df_pred = pd.concat([df_val.reset_index(drop=True),df_pred],axis=1)
