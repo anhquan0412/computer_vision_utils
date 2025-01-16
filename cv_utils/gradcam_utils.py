@@ -276,7 +276,7 @@ class GradCam:
             test_inps = detections[path_column].tolist()
 
         detection_labels = detections[y_column]
-        if self.label_names:
+        if self.label_names is not None:
             detection_labels = detections[y_column].map({i:v for i,v in enumerate(self.label_names)})
 
             
