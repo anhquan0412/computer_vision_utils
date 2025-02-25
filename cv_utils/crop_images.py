@@ -291,4 +291,4 @@ if __name__ == "__main__":
     main()
 
 # Example Usage:
-# crop-images-from-file path/to/csv_or_json_file path/to/image_dir path/to/drop_dir --square_crop True --postfix mv5b --max_workers 4 --crop_cat 1 --logdir path/to/log_dir --force False
+# crop-images-from-file path/to/csv_or_json_file path/to/image_dir path/to/cropped_dir --square_crop True --postfix mv5b --max_workers 4 --crop_cat 1 --logdir path/to/log_dir --force False

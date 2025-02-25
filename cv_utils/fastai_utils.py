@@ -70,7 +70,8 @@ def PILImageFactory(container_client=None):
         @classmethod
         def create(cls, inps, **kwargs):
             if isinstance(inps, Iterable) and not isinstance(inps,str):
-                # containing bbox
+                # containing bbox. Either (file_path,bbox) or [[file_path,bbox]]
+                if len(inps)==1: inps = inps[0]
                 inps = list(inps)
                 inps[0] = download_img(check_and_fix_http_path(inps[0]),
                                        PILMDImage.input_container_client)
@@ -100,14 +101,15 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 
         def _do_one(self, r, c):
             o = r[c] if isinstance(c, int) or not c in getattr(r, '_fields', []) else getattr(r, c)
-            # o is a tuple of (relative_path, bbox_coords)
-            if len(self.pref)==0 and len(self.suff)==0 and self.label_delim is None: return o
-            
+            # o can be a string (relative_path) or a tuple of (relative_path, bbox_coords)
+            bbox=None
             if isinstance(o,(list,tuple)) and len(o)==2 and len(o[1])==4:
-                o = o[0] # get the first element of the tuple, which is the path. 
+                bbox = o[1]
+                o = o[0]
+            if len(self.pref)==0 and len(self.suff)==0 and self.label_delim is None: 
+                return o if not bbox else [[o,bbox]]
 
-            if self.label_delim is None: return f'{self.pref}{o}{self.suff}'
-            else: return o.split(self.label_delim) if len(o)>0 else []
+            return f'{self.pref}{o}{self.suff}' if not bbox else [[f'{self.pref}{o}{self.suff}',bbox]]
                         
 
         def __call__(self, o, **kwargs):
@@ -126,6 +128,13 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 
         PILImageClass = PILImageFactory()
         col_reader = ColMDReader(fn_col, pref=pref, suff=suff)
+
+        # check, if df[fn_col] also contains bbox, then each bbox must be tuple of float instead of str
+        if not isinstance(fn_col,int):
+            raise Exception('fn_col must be an integer, which is the index of the filename column. Note that this column can contain a tuple of (name,bbox)')
+        if isinstance(df.iloc[0,fn_col],(tuple,list)) and len(df.iloc[0,fn_col])==2 and not isinstance(df.iloc[0,fn_col][1],(tuple,list)):
+            print('Convert bbox to tuple format')
+            df.iloc[:,fn_col] = df.iloc[:,fn_col].apply(lambda x: (x[0],tuple(ast.literal_eval(x[1]))))
 
         dblock = DataBlock(blocks=(ImageBlock(PILImageClass), y_block),
                            get_x=col_reader,
