@@ -15,6 +15,31 @@ def clas_report_compact(y_true,y_pred,label_names=None):
     report_df_short.support = report_df_short.support.astype(int)
     return report_df_short
 
+def focus_precision_recall_from_cm(report_df_short,confusion_matrix,labels,metric='precision',n_show=5,cut_off=0.1,ascending=True):
+    if metric not in ['precision','recall']:
+        raise Exception('Eligible metric: precision or recall')
+    for i in range(n_show):
+        print('-'*50)
+        _row = report_df_short.sort_values(metric,ascending=ascending)
+        print('Prediction: ' if metric=='precision' else 'True label: ',_row.index[i])
+        print(f'{metric.title()}: ',round(_row.precision[i],3))
+        print('True label: ' if metric=='precision' else 'Prediction: ')
+        _idx = np.where(labels==_row.index[i])[0][0]
+        fp_rate = {}
+        for j in np.argwhere(confusion_matrix[:,_idx]>0).flatten():
+            if j!=_idx:
+                if metric=='precision':
+                    _results = (confusion_matrix[j,_idx],round(confusion_matrix[j,_idx]/(confusion_matrix[:,_idx].sum() - confusion_matrix[_idx,_idx]),3))
+                else:
+                    _results = (confusion_matrix[_idx,j],round(confusion_matrix[_idx,j]/(confusion_matrix[_idx,:].sum() - confusion_matrix[_idx,_idx]),3))
+                if _results[1]>cut_off:
+                    fp_rate[labels[j]] = _results
+
+
+        fp_rate = dict(sorted(fp_rate.items(), key=lambda item: item[1], reverse=True))
+        for k,v in fp_rate.items():
+            print(f"  {k}: {v[0]} ({v[1]*100:.3f}% of all False {'Positives' if metric=='precision' else 'Negatives'} of {_row.index[i].strip()} )")
+
 def plot_classification_report(report_df_short,rotation=85,figsize=(10,8),fontsize=8,metrics=['f1','precision','recall']):
     species = report_df_short.index.values
     support = report_df_short['support'].values
