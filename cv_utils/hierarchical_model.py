@@ -247,6 +247,7 @@ class HierarchicalEfficientNet(EfficientNet):
     
 def hierarchical_param_splitter(m,parent_last=True):
     # rough draft of differential learning rate for EfficientNet
+    # not really affective for wildlife dataset
     len_hierar_fc = len(list(m._hierarchical_fc.parameters()))
     group1 = [p for p in list(m.parameters())[:-len_hierar_fc] if p.requires_grad]
     parent_group = [p for p in m._hierarchical_fc.parent_fc.parameters() if p.requires_grad]
