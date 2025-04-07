@@ -266,7 +266,7 @@ def load_hier_model(parent_count,children_count,lin_dropout_rate=0.3, last_hidde
                                               depth_coefficient=d, 
                                               dropout_rate=p, # 0.3
                                               image_size=s,
-                                              num_classes=len(dls.train_ds.vocab),
+                                              num_classes=parent_count+children_count,
                                              )
 
 
