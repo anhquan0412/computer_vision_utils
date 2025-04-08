@@ -314,6 +314,7 @@ def prepare_inference_dataloader(inputs,
                                  n_workers=1):
 
     if isinstance(inputs[0],str) or (len(inputs[0])==2 and isinstance(inputs[0][0],str) and len(inputs[0][1])==4):
+        print(inputs)
         inputs = np.array(inputs)
         input_container_client=None
         if input_container_sas is not None:
@@ -435,7 +436,7 @@ class EffNetClassificationInference:
                 n_workers=1, # number of workers for parallel processing (image verification and dataloaders). None for all, up to 16
                 pin_memory=False # If True, the data loader will copy Tensors into CUDA pinned memory before returning them
                ):
-        if not isinstance(inputs, Iterable) or isinstance(inputs,str):
+        if (not isinstance(inputs, Iterable)) or isinstance(inputs,str):
             inputs = np.array([inputs])
         if isinstance(inputs, pd.DataFrame):
             inputs = inputs.copy()
