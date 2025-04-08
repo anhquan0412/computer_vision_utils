@@ -304,7 +304,7 @@ def _verify_images(inps,input_container_sas=None):
     else:
         return True
 
-def prepare_inference_dataloader(inputs,
+def prepare_inference_dataloader(inputs, # list of image paths or tuples of (image_path,bbox)
                                  input_container_sas=None,
                                  do_image_check=False,
                                  item_tfms=None,
@@ -314,8 +314,7 @@ def prepare_inference_dataloader(inputs,
                                  n_workers=1):
 
     if isinstance(inputs[0],str) or (len(inputs[0])==2 and isinstance(inputs[0][0],str) and len(inputs[0][1])==4):
-        print(inputs)
-        inputs = np.array(inputs)
+        inputs = np.array(inputs,dtype='object')
         input_container_client=None
         if input_container_sas is not None:
             input_container_client = ContainerClient.from_container_url(input_container_sas)
