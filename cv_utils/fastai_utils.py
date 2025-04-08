@@ -10,6 +10,7 @@ import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image, download_img
 from .common_utils import check_and_fix_http_path
 from efficientnet_pytorch import EfficientNet
+from efficientnet_pytorch.utils import efficientnet, efficientnet_params
 from multiprocessing import cpu_count
 
 def bold_print(txt):
@@ -363,9 +364,25 @@ class EffNetClassificationInference:
         self.finetuned_model = finetuned_model
         self.item_tfms = item_tfms
         self.aug_tfms = aug_tfms
-        self.model = EfficientNet.from_pretrained(efficient_model,
-                                                  weights_path=str(finetuned_model)+'.pth',
-                                                  num_classes=label_info if isinstance(label_info,int) else len(label_info))
+
+        w, d, s, p = efficientnet_params(efficient_model)
+        blocks_args, global_params = efficientnet(include_top=True,
+                                                width_coefficient=w, 
+                                                depth_coefficient=d, 
+                                                dropout_rate=p, # 0.3
+                                                image_size=s,
+                                                num_classes=label_info if isinstance(label_info,int) else len(label_info),
+                                                )
+        self.model = EfficientNet(blocks_args, global_params)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        state_dict = torch.load(finetuned_model, map_location=device)
+        ret = self.model.load_state_dict(state_dict, strict=False)
+        if len(ret.missing_keys):
+            print(f'Missing keys: {ret.missing_keys}')
+
+        # self.model = EfficientNet.from_pretrained(efficient_model,
+        #                                           weights_path=str(finetuned_model)+'.pth',
+        #                                           num_classes=label_info if isinstance(label_info,int) else len(label_info))
 
     def validate_df(self,df):
         if 'file' in df.columns.tolist():
