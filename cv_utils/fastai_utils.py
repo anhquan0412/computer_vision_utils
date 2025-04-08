@@ -63,28 +63,31 @@ def fastai_predict_val(learner,label_names,df_val=None,save_path=None):
     return df_pred
 
 
-def PILImageFactory(container_client=None):
-    class PILMDImage(PILBase):
-        # Blob client variable
-        input_container_client=container_client
-        
-        @classmethod
-        def create(cls, inps, **kwargs):
-            if isinstance(inps, Iterable) and not isinstance(inps,str):
-                # containing bbox. Either (file_path,bbox) or [[file_path,bbox]]
-                if len(inps)==1: inps = inps[0]
-                inps = list(inps)
-                inps[0] = download_img(check_and_fix_http_path(inps[0]),
-                                       PILMDImage.input_container_client)
-                img = PILImage.create(inps[0])
-                norm_bbox = inps[1]
-                img = crop_image(img,norm_bbox,square_crop=True)
-                return PILImage.create(img)
+class PILMDImage(PILBase):
+    # Blob client variable
+    input_container_client = None
 
-            inps = download_img(check_and_fix_http_path(inps),
-                                PILMDImage.input_container_client)
-            return PILImage.create(inps)
- 
+    @classmethod
+    def create(cls, inps, **kwargs):
+        if isinstance(inps, Iterable) and not isinstance(inps, str):
+            # containing bbox. Either (file_path, bbox) or [[file_path, bbox]]
+            if len(inps) == 1:
+                inps = inps[0]
+            inps = list(inps)
+            inps[0] = download_img(check_and_fix_http_path(inps[0]),
+                                   PILMDImage.input_container_client)
+            img = PILImage.create(inps[0])
+            norm_bbox = inps[1]
+            img = crop_image(img, norm_bbox, square_crop=True)
+            return PILImage.create(img)
+
+        inps = download_img(check_and_fix_http_path(inps),
+                            PILMDImage.input_container_client)
+        return PILImage.create(inps)
+
+# Update PILImageFactory to set the container client
+def PILImageFactory(container_client=None):
+    PILMDImage.input_container_client = container_client
     return PILMDImage
 
 def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
