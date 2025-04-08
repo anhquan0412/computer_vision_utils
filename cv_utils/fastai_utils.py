@@ -359,9 +359,14 @@ class EffNetClassificationInference:
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                 ):
         self.label_info = label_info
+        # finetuned_model = Path(finetuned_model)
+        # finetuned_model = finetuned_model.parent/finetuned_model.stem
+
+        # check whether finetuned_model string ends with .pth or .pt
+        finetuned_model = str(finetuned_model)
+        if not (finetuned_model.endswith('.pth') or finetuned_model.endswith('.pt')):
+            finetuned_model = finetuned_model + '.pth'
         finetuned_model = Path(finetuned_model)
-        finetuned_model = finetuned_model.parent/finetuned_model.stem
-        self.finetuned_model = finetuned_model
         self.item_tfms = item_tfms
         self.aug_tfms = aug_tfms
 
@@ -378,7 +383,7 @@ class EffNetClassificationInference:
         state_dict = torch.load(finetuned_model, map_location=device)
         ret = self.model.load_state_dict(state_dict, strict=False)
         if len(ret.missing_keys):
-            print(f'Missing keys: {ret.missing_keys}')
+            print(f'Missing weights: {ret.missing_keys}')
 
         # self.model = EfficientNet.from_pretrained(efficient_model,
         #                                           weights_path=str(finetuned_model)+'.pth',
@@ -444,7 +449,7 @@ class EffNetClassificationInference:
                                                       n_workers=n_workers)
 
         learner = Learner(dls,self.model,loss_func = CrossEntropyLossFlat())
-        _ = learner.load(self.finetuned_model)
+        # _ = learner.load(self.finetuned_model)
 
         if tta_n>0:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
