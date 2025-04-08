@@ -313,3 +313,37 @@ class GradCam:
                 img_bytes.append(img_byte)
 
         return img_bytes
+    
+
+
+def get_gradcam_results(scorer, # DetectAndClassify object
+                        file_paths, # list of absolute file paths to images
+                        input_container_sas=None,
+                        plot_type='gc',
+                        figsize_each=5, # plt fig size for each image
+                       ):
+    if isinstance(file_paths,str):
+        file_paths = [file_paths]
+    detections = scorer.predict(file_paths,
+                                input_container_sas=input_container_sas,
+                                convert_to_json=False,
+                                pred_topn=1,
+                                n_workers=1
+                               )
+    detections = detections[detections['failure'].isna() & (detections['detection_category'].astype(int).isin([1]))].copy().reset_index(drop=True)
+    gc = GradCam(scorer.class_inference.model,label_names=scorer.class_inference.label_info)
+    
+    results = gc.get_gradcam_images(detections,
+                                    input_container_sas=input_container_sas,
+                                    item_tfms=scorer.class_inference.item_tfms,
+                                    batch_size=1,
+                                    plot_type=plot_type,
+                                    path_column='file',
+                                    y_column='pred_1',
+                                    bbox_column='detection_bbox',
+                                    prob_column='prob_1',
+                                    conv_module=scorer.class_inference.model._conv_head,
+                                    save_to_bytes=True,
+                                    figsize_each=figsize_each
+                                   )
+    return results,detections
