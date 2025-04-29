@@ -10,7 +10,7 @@ setup(
     version='0.2.4',
     packages=find_packages(),
     install_requires=[
-        'megadetector==5.0.23', # 20
+        'megadetector==5.0.25', # 20
         'fastai',
         # 'numpy',
         # 'pandas',

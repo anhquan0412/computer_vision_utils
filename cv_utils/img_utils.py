@@ -44,6 +44,16 @@ def download_img(img_file,input_container_client,ignore_exif_rotation=True,load_
         img.load()
     return img
 
+def yolo_to_crop_format(bbox_yolo):
+    """
+    Convert from YOLO format [x_center, y_center, width, height] to 
+    crop format [x_min, y_min, width, height]
+    """
+    x_center, y_center, width, height = bbox_yolo
+    x_min = x_center - (width / 2)
+    y_min = y_center - (height / 2)
+    return [x_min, y_min, width, height]
+
 def crop_image(img: Image.Image, bbox_norm: Sequence[float], square_crop: bool) -> Image.Image:
     img_w, img_h = img.size
     xmin = int(bbox_norm[0] * img_w)
