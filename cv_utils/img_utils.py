@@ -4,6 +4,14 @@ from megadetector.visualization import visualization_utils as md_viz
 from io import BytesIO
 from typing import Union
 import io
+import cv2
+import numpy as np
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm 
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def load_local_image(img_path: str |  BinaryIO) -> Optional[Image.Image]:
     """Attempts to load an image from a local path."""
@@ -77,3 +85,153 @@ def crop_image(img: Image.Image, bbox_norm: Sequence[float], square_crop: bool) 
         crop = ImageOps.pad(crop, size=(box_size, box_size), color=0)
 
     return crop
+
+
+
+def is_color_image(
+    image_path: str,
+    saturation_percentile_threshold: int = 20, # Threshold for the 99th percentile saturation
+    channel_diff_threshold: int = 10,
+    saturation_percentile: int = 99 # Which percentile to check (99 ignores top 1% outliers)
+) -> bool | None:
+    """
+    Checks if an image is color or grayscale/black and white using a combined
+    check of channel similarity AND high-percentile saturation.
+
+    An image is classified as B&W only if BOTH the average channel difference
+    AND the specified high percentile (e.g., 99th) of saturation values are
+    below their respective thresholds. Otherwise, it's considered color.
+    This approach is more robust to noise/outlier pixels than using max saturation.
+
+    Args:
+        image_path: Path to the image file.
+        saturation_percentile_threshold: Threshold for the high percentile saturation value.
+                                         (Range 0-255). Adjust based on testing (e.g., 15-35).
+        channel_diff_threshold: Threshold for the average absolute difference
+                                between color channels. (Range 0-255)
+                                Adjust based on testing (e.g., 5-15).
+        saturation_percentile: The percentile of saturation values to check (e.g., 99).
+
+    Returns:
+        True if the image is likely color.
+        False if the image is likely grayscale/black and white.
+        None if the image cannot be loaded or processed.
+    """
+    if not (0 < saturation_percentile <= 100):
+        logging.error("saturation_percentile must be between 0 and 100.")
+        return None # Invalid input
+
+    try:
+        img = cv2.imread(image_path)
+
+        if img is None:
+            logging.warning(f"Could not load image: {image_path}")
+            return None
+
+        # If the image has fewer than 3 channels, it's definitely grayscale
+        if len(img.shape) < 3 or img.shape[2] < 3:
+            return False # Classified as B&W
+
+        # 1. Channel Similarity
+        # Use float32 for calculations to avoid potential intermediate overflows and precision issues
+        b_channel = img[:, :, 0].astype(np.float32)
+        g_channel = img[:, :, 1].astype(np.float32)
+        r_channel = img[:, :, 2].astype(np.float32)
+        # Calculate mean absolute differences
+        diff_bg = np.mean(np.abs(b_channel - g_channel))
+        diff_gr = np.mean(np.abs(g_channel - r_channel))
+        mean_channel_diff = (diff_bg + diff_gr) / 2
+
+        # 2. Saturation (using percentile)
+        # Convert the image from BGR to HSV color space
+        hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        # Extract the Saturation channel (channel index 1)
+        saturation_channel = hsv_img[:, :, 1]
+        # Calculate the specified percentile of saturation values
+        # This ignores outlier pixels (e.g., top 1% if percentile=99)
+        # Flatten the channel array for percentile calculation
+        saturation_value_percentile = np.percentile(saturation_channel.flatten(), saturation_percentile)
+
+        # --- Combined Check ---
+        # Classify as B&W ONLY if BOTH channel difference AND high-percentile saturation are low
+        if mean_channel_diff < channel_diff_threshold and saturation_value_percentile < saturation_percentile_threshold:
+            # This condition catches true grayscale and typical IR images more reliably
+            return False # Classified as B&W
+        else:
+            # If either channel difference is significant OR the bulk of saturation values are significant,
+            # it's likely a color image (even if muted or low-light color).
+            return True # Classified as Color
+
+    except Exception as e:
+        # Log the error
+        logging.error(f"Error processing image {image_path}: {e}", exc_info=False) # Set exc_info=True for full traceback
+        return None
+
+def process_colorcheck_parallel(
+    image_paths: list[str],
+    saturation_percentile_threshold: int = 20, # Renamed threshold parameter
+    channel_diff_threshold: int = 10,
+    saturation_percentile: int = 99, # Added percentile parameter
+    max_workers: int = 8
+):
+    """
+    Processes a list of images in parallel to check if they are color using percentile saturation.
+
+    Args:
+        image_paths: A list of paths to image files.
+        saturation_percentile_threshold: The saturation percentile threshold.
+        channel_diff_threshold: The channel difference threshold.
+        saturation_percentile: The percentile to use for saturation check (e.g., 99).
+        max_workers: The maximum number of threads to use for parallel processing.
+
+    Returns:
+        A dictionary mapping image paths to their color status (True=color, False=BW, None=Error).
+    """
+    results = {}
+    start_time = time.time()
+    total_images = len(image_paths)
+    logging.info(f"Starting parallel processing for {total_images} images using up to {max_workers} workers.")
+
+    # Use ThreadPoolExecutor for parallel I/O bound tasks (like reading files)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Create a future for each image processing task, passing all thresholds/params
+        future_to_path = {
+            executor.submit(
+                is_color_image,
+                path,
+                saturation_percentile_threshold,
+                channel_diff_threshold,
+                saturation_percentile # Pass the percentile value
+            ): path for path in image_paths
+        }
+
+        # Use standard tqdm for a console/text-based progress bar
+        for future in tqdm(as_completed(future_to_path), total=total_images, desc="Processing Images"):
+            path = future_to_path[future]
+            try:
+                result = future.result()
+                results[path] = result
+            except Exception as exc:
+                # Log the exception that might occur during future.result() call itself
+                logging.error(f'{path} generated an exception during future retrieval: {exc}', exc_info=False)
+                results[path] = None # Mark as error
+
+    end_time = time.time()
+    processing_time = end_time - start_time
+    logging.info(f"Finished processing {len(results)} images in {processing_time:.2f} seconds.")
+    return results
+
+# # Usage of color check function
+# CHANNEL_DIFF_THRESHOLD = 10       # If mean channel diff is BELOW this AND...
+# SATURATION_PERCENTILE_THRESHOLD = 20 # 99th percentile saturation is BELOW this -> classify as B&W.
+# SATURATION_PERCENTILE = 99        # Use the 99th percentile (ignores top 1% outliers)
+# NUM_WORKERS = 1 # os.cpu_count()
+# results_dict = process_colorcheck_parallel(
+#     image_paths=df.abs_file.tolist(),
+#     saturation_percentile_threshold=SATURATION_PERCENTILE_THRESHOLD,
+#     channel_diff_threshold=CHANNEL_DIFF_THRESHOLD,
+#     saturation_percentile=SATURATION_PERCENTILE,
+#     max_workers=NUM_WORKERS
+# )
+# with open(f'color_check.json', 'w') as f: 
+#     json.dump(results_dict, f)
