@@ -90,7 +90,7 @@ def PILImageFactory(container_client=None):
     PILMDImage.input_container_client = container_client
     return PILMDImage
 
-def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
+def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False,n_workers=None):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
@@ -121,7 +121,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
             return L(self._do_one(o, c) for c in self.cols)
         
     def ImageDataLoaders_from_df(df, path='.', valid_pct=0.2, seed=None, fn_col=0, folder=None, suff='', label_col=1, label_delim=None,
-                y_block=None, valid_col=None, item_tfms=None, batch_tfms=None, img_cls=PILImage, **kwargs):
+                y_block=None, valid_col=None, item_tfms=None, batch_tfms=None, **kwargs):
         "Create from `df` in `path` using `fn_col` and `label_col`"
         pref = f'{Path(path) if folder is None else Path(path)/folder}{os.path.sep}'
         
@@ -146,7 +146,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                            splitter=splitter,
                            item_tfms=item_tfms,
                            batch_tfms=batch_tfms)
-        return ImageDataLoaders.from_dblock(dblock, df, path=path, **kwargs)
+        return ImageDataLoaders.from_dblock(dblock, df, path=path, num_workers=n_workers, **kwargs)
     
     use_wandb = 'WANDB_PROJECT' in config
 
