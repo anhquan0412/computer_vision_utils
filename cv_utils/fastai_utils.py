@@ -221,12 +221,15 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     
     bold_print('training model')
     epoch = config['EPOCH']
-    freeze_epoch = config['FREEZE_EPOCH'] if 'FREEZE_EPOCH' in config else 1
+    # freeze_epoch = config['FREEZE_EPOCH'] if 'FREEZE_EPOCH' in config else 1
     if len(metric_lists)<8:
-        learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
+        learn.unfreeze()
+        learn.fit_one_cycle(epoch,config['LR'],pct_start=0.25)
+        # learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
     else:
         with learn.no_bar(), learn.no_logging():
-            learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
+            learn.unfreeze()
+            learn.fit_one_cycle(epoch,config['LR'],pct_start=0.25)
 
     _ax = learn.recorder.plot_loss(show_epochs=True)
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')

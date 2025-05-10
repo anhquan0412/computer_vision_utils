@@ -141,7 +141,7 @@ def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsiz
         print(value_counts_both(_tmp.label).head(10))
     if _tmp.shape[0]>num_imgs: _tmp = _tmp.sample(num_imgs)
     _tmp = _tmp.sort_values('detection_conf',ascending=ascending)
-    to_show = _tmp.detection_conf.round(2).astype(str)
+    to_show = _tmp.detection_conf.round(3).astype(str)
     if 'label' in _tmp.columns:
         to_show+=','+_tmp.label.str.split('|',expand=True)[1].str.strip()
     visualize_images(_tmp.abs_path,to_show,_tmp.detection_bbox,figsize=figsize,fontsize=fontsize)
