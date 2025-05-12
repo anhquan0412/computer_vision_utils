@@ -190,6 +190,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     save_directory = Path(config['SAVE_DIRECTORY']) if 'SAVE_DIRECTORY' in config else Path('.')/'model'
     save_directory.mkdir(exist_ok=True,parents=True)
     save_name = config['SAVE_NAME'] if 'SAVE_NAME' in config else 'model'
+    pct_start = config['PCT_START'] if 'PCT_START' in config else 0.25
     log_metrics = config['LOG_LABEL_METRICS'] if 'LOG_LABEL_METRICS' in config else []
     assert set(log_metrics) - set(['precision','recall','f1'])==set()
     cbs=[
@@ -227,7 +228,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
             learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
         else:
             learn.unfreeze()
-            learn.fit_one_cycle(epoch,config['LR'],pct_start=0.25)
+            learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start)
         
     else:
         with learn.no_bar(), learn.no_logging():
@@ -235,7 +236,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                 learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
             else:
                 learn.unfreeze()
-                learn.fit_one_cycle(epoch,config['LR'],pct_start=0.25)
+                learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start)
 
     _ax = learn.recorder.plot_loss(show_epochs=True)
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
