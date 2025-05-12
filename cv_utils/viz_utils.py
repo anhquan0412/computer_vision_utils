@@ -16,6 +16,22 @@ def clas_report_compact(y_true,y_pred,label_names=None):
     return report_df_short
 
 def focus_precision_recall_from_cm(report_df_short,confusion_matrix,labels,metric='precision',n_show=5,cut_off=0.1,ascending=True):
+    """
+    report_df_short: classification report dataframe, only the rows with support > 0 and without the last 3 rows
+    labels: the labels of the classification report, aphabetically sorted
+    confusion_matrix: the confusion matrix of the classification report
+    e.g.
+        cm = confusion_matrix(df_pred.y_true.tolist(), df_pred.y_pred.tolist())
+        labels = np.sort(df_pred.y_true.unique())
+
+        report = classification_report(df_pred.y_true.tolist(), df_pred.y_pred.tolist(),
+                                    target_names=labels, 
+                                    output_dict=True)
+        report_df = pd.DataFrame(report).T
+        report_df_short = report_df[report_df.support>0]
+        report_df_short = report_df_short.iloc[:-3].copy()
+        report_df_short.support = report_df_short.support.astype(int)
+    """
     if metric not in ['precision','recall']:
         raise Exception('Eligible metric: precision or recall')
     for i in range(n_show):
@@ -98,8 +114,11 @@ def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12),save_p
     plt.xticks(rotation=90, fontsize=10)
 
     if save_path is not None:
+        # will not show the plot
         plt.savefig(save_path, dpi=dpi, bbox_inches='tight',format='png')
-    plt.show()
+        plt.close(fig)
+    else:
+        plt.show()
 
 
 def visualize_images(image_paths, labels=None, bboxes=None, figsize=(10, 10), fontsize=8, square_crop=False):
