@@ -88,7 +88,7 @@ def plot_classification_report(report_df_short,rotation=85,figsize=(10,8),fontsi
     ax2.grid(True, which='minor', axis='y', linestyle=':', linewidth=0.5)
     plt.show()
 
-def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12)):
+def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12),save_path=None,dpi=300):
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=label_names)
     fig, ax = plt.subplots(figsize=figsize)
     disp.plot(ax=ax, values_format='d')
@@ -96,6 +96,9 @@ def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12)):
     for text in disp.text_.ravel():
         text.set_fontsize(fontsize)  # Set the desired font size
     plt.xticks(rotation=90, fontsize=10)
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=dpi, bbox_inches='tight',format='png')
     plt.show()
 
 
