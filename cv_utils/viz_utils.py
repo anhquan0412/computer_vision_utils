@@ -23,14 +23,7 @@ def focus_precision_recall_from_cm(report_df_short,confusion_matrix,labels,metri
     e.g.
         cm = confusion_matrix(df_pred.y_true.tolist(), df_pred.y_pred.tolist())
         labels = np.sort(df_pred.y_true.unique())
-
-        report = classification_report(df_pred.y_true.tolist(), df_pred.y_pred.tolist(),
-                                    target_names=labels, 
-                                    output_dict=True)
-        report_df = pd.DataFrame(report).T
-        report_df_short = report_df[report_df.support>0]
-        report_df_short = report_df_short.iloc[:-3].copy()
-        report_df_short.support = report_df_short.support.astype(int)
+        report_df_short = clas_report_compact(df_pred.y_true.tolist(), df_pred.y_pred.tolist(),labels)
     """
     if metric not in ['precision','recall']:
         raise Exception('Eligible metric: precision or recall')
