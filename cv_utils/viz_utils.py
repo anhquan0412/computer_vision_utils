@@ -27,15 +27,15 @@ def focus_precision_recall_from_cm(report_df_short,confusion_matrix,labels,metri
     """
     if metric not in ['precision','recall']:
         raise Exception('Eligible metric: precision or recall')
+    _row = report_df_short.sort_values(metric,ascending=ascending)
     for i in range(n_show):
         print('-'*50)
-        _row = report_df_short.sort_values(metric,ascending=ascending)
         print('Prediction: ' if metric=='precision' else 'True label: ',_row.index[i])
-        print(f'{metric.title()}: ',round(_row.precision[i],3))
+        print(f'{metric.title()}: ',round(_row[metric].iloc[i],3))
         print('True label: ' if metric=='precision' else 'Prediction: ')
         _idx = np.where(labels==_row.index[i])[0][0]
         fp_rate = {}
-        for j in np.argwhere(confusion_matrix[:,_idx]>0).flatten():
+        for j in np.argwhere((confusion_matrix[:,_idx] if metric=='precision' else confusion_matrix[_idx,:]) >0 ).flatten():
             if j!=_idx:
                 if metric=='precision':
                     _results = (confusion_matrix[j,_idx],round(confusion_matrix[j,_idx]/(confusion_matrix[:,_idx].sum() - confusion_matrix[_idx,_idx]),3))
