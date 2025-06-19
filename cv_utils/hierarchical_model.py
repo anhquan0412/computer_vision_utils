@@ -1,6 +1,6 @@
 from fastai.vision.all import *
+from efficientnet_pytorch import EfficientNet
 from efficientnet_pytorch.utils import round_filters, MemoryEfficientSwish
-from efficientnet_pytorch.utils import efficientnet, efficientnet_params,load_pretrained_weights
 from sklearn.metrics import precision_recall_fscore_support
 
 
@@ -259,6 +259,8 @@ def hierarchical_param_splitter(m,parent_last=True):
 
 def load_hier_model(parent_count,children_count,lin_dropout_rate=0.3, last_hidden=256, use_simple_head=True,
                     base_model='efficientnet-b3',trained_weight_path=None):
+                    
+    from efficientnet_pytorch.utils import efficientnet, efficientnet_params,load_pretrained_weights
     w, d, s, p = efficientnet_params(base_model)
 
     blocks_args, global_params = efficientnet(include_top=True,
