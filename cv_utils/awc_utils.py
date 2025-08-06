@@ -319,7 +319,7 @@ class DetectAndClassify:
         # default
         # file	detection_bbox	pred_1	pred_2	pred_3	prob_1	prob_2	prob_3
 
-        # for hitax (with no parent-child merging)
+        # for hitax (with no parent-child merging), which is not applicable for AWC pipeline
         # file  detection_bbox  parent_pred_1  parent_prob_1  
         #                       child_pred_1   child_prob_1 
 

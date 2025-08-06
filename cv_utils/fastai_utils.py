@@ -478,7 +478,7 @@ class EffNetClassificationInference:
         # file	detection_bbox	pred_1	pred_2	pred_3	prob_1	prob_2	prob_3
         return df
 
-    def create_output_df_hitax_merge(self,inputs,probs,preds,level,valid_idxs,name_output,is_rollup=False):
+    def create_output_df_hitax_onepred(self,inputs,probs,preds,level,valid_idxs,name_output,is_rollup=False):
         if isinstance(inputs[0],str):
             df= pd.DataFrame(inputs,columns=['file'])
         else:
@@ -594,7 +594,7 @@ class EffNetClassificationInference:
                 pred_str = df_preds_rollup['prediction'].values
                 level = df_preds_rollup['level'].values
                 probs = df_preds_rollup['probability'].values
-                return self.create_output_df_hitax_merge(inputs,probs,pred_str,level,valid_idxs,name_output,
+                return self.create_output_df_hitax_onepred(inputs,probs,pred_str,level,valid_idxs,name_output,
                                                           is_rollup=True)
         
         # hitax
@@ -614,7 +614,7 @@ class EffNetClassificationInference:
             pred_l2_idxs[_mask] = pred_l1_idxs[_mask]
             # 'level' is 1 for parent (that was replaced), 2 for child
             level= torch.where(_mask,1,2)
-            return self.create_output_df_hitax_merge(inputs,pred_l2_prob,pred_l2_idxs,level,valid_idxs,name_output,is_rollup=False)
+            return self.create_output_df_hitax_onepred(inputs,pred_l2_prob,pred_l2_idxs,level,valid_idxs,name_output,is_rollup=False)
         
         pred_l1_prob = pred_l1_prob[:,:pred_topn]
         pred_l2_prob = pred_l2_prob[:,:pred_topn]
