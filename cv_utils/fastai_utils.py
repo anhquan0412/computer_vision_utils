@@ -523,8 +523,9 @@ class EffNetClassificationInference:
         df_l1_prob.index=valid_idxs
         df_l2_prob.index=valid_idxs
         df = pd.concat([df,df_l1_pred,df_l1_prob,df_l2_pred,df_l2_prob],axis=1)
-        # file  detection_bbox  parent_pred_1  parent_prob_1  
-        #                       child_pred_1   child_prob_1 
+        # file  detection_bbox  parent_pred_1  parent_prob_1  parent_pred_2  parent_prob_2
+        #                       child_pred_1   child_prob_1  child_pred_2   child_prob_2
+
         return df
 
 

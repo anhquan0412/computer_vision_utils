@@ -110,33 +110,6 @@ def _create_detections(df,class_thres=0):
     return {"file":f, "detections":detections}
 
 
-def _create_detections_hier(df,class_thres=0):
-    if isinstance(df, pd.Series): df = df.to_frame().T
-    
-    pred_n = len([c for c in df.columns if 'pred' in c])
-    detections=[]
-    for f,cat,conf,bbox,fa,*predprobs in df[['file','detection_category','detection_conf','detection_bbox','failure']+\
-                                           [f'pred_{i+1}' for i in range(pred_n)]+\
-                                           [f'prob_{i+1}' for i in range(pred_n)]].values:
-        if fa is not None and fa is not np.NaN:
-            return {"file":f, "failure": str(fa)}
-        if cat is None or cat is np.NaN:
-            return {"file":f, "detections": []}
-        _inner={}
-        _inner["category"]=str(int(cat))
-        _inner["conf"]=truncate_float(conf,precision=3)
-        _inner["bbox"]=truncate_float_array(bbox,precision=4)
-        if len(predprobs):
-            class_results=[]
-            for i in range(pred_n):
-                _pred,_prob=predprobs[i],predprobs[i+pred_n]
-                if _prob>=class_thres:
-                    class_results.append([str(int(_pred)),truncate_float(_prob,precision=3)])
-            if len(class_results):
-                _inner["classifications"]=class_results
-        detections.append(_inner)
-    return {"file":f, "detections":detections}
-
 def df_to_mdv5_classification_json(df,class_thres=0.3,n_workers=None):
     df = df.dropna(subset='file')
     if n_workers==1:
@@ -155,8 +128,6 @@ def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     df = pd.merge(df,_tmp)
     df['bbox_conf_rank'] = df.groupby('file').detection_conf.rank(method='first',ascending=False).astype(int)
     return df
-
-
 
 
 def viz_by_detection_threshold(df,lower,upper=1.01,label=None,num_imgs=36,figsize=(12,12),fontsize=6,ascending=False):
@@ -251,13 +222,17 @@ class DetectAndClassify:
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                  parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification (hitax)
-                 child2parent=None, # dictionary of child to parent mapping, needed for hitax
+                 child2parent=None, # dictionary of child to parent mapping (hitax)
+                 hitax_output=None, # None for merged output, 'parent' for parent only, 'child' for child only (hitax)
                  child_threshold=0.75, # threshold (for hitax), any child label with probability less than this will be replaced with parent label
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
                  rollup_threshold=0.75 # threshold for rollup classification, default is 0.75
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
+        self.hitax_output = hitax_output
+        if hitax_output is not None and hitax_output not in ['parent','child']:
+            raise Exception('hitax_output must be either None, "parent" or "child"')
         if finetuned_model is not None and label_info is not None:
             self.label_info = label_info
             self.class_inference = EffNetClassificationInference(label_info=label_info,
@@ -267,16 +242,25 @@ class DetectAndClassify:
                                                                  aug_tfms=aug_tfms,
                                                                  parent_info=parent_info,
                                                                  child2parent=child2parent,
-                                                                 child_threshold=child_threshold,
+                                                                 child_threshold=child_threshold if hitax_output is None else None,
                                                                  parent2child=parent2child,
                                                                  rollup_threshold=rollup_threshold
                                                                  )
 
-    def hitax_index_cleanup(self,df):
+    def hitax_cleanup(self,df):
         if self.class_inference.is_rollup or (self.class_inference.is_hitax and self.class_inference.child_threshold is not None):
             # file  detection_bbox  pred_1  prob_1  level
             # shift index of children (level 2) by len(self.class_inference.parent_info)
             df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] + len(self.class_inference.parent_info)
+            df = df.drop(columns=['level'])
+
+        if self.class_inference.is_hitax and self.hitax_output is not None:
+            if self.hitax_output == 'child':
+                parent_cols = [c for c in df.columns if 'parent_' in c]
+                df = df.drop(columns=parent_cols)
+            elif self.hitax_output == 'parent':
+                child_cols = [c for c in df.columns if 'child_' in c]
+                df = df.drop(columns=child_cols)
         return df
             
     def predict(self,
@@ -319,14 +303,14 @@ class DetectAndClassify:
         # default
         # file	detection_bbox	pred_1	pred_2	pred_3	prob_1	prob_2	prob_3
 
-        # for hitax (with no parent-child merging), which is not applicable for AWC pipeline
-        # file  detection_bbox  parent_pred_1  parent_prob_1  
-        #                       child_pred_1   child_prob_1 
+        # for hitax (with no parent-child merging)
+        # file  detection_bbox  parent_pred_1  parent_prob_1  parent_pred_2  parent_prob_2
+        #                       child_pred_1   child_prob_1  child_pred_2   child_prob_2
 
         # for rollup, or hitax with parent-child merging
         # file  detection_bbox  pred_1  prob_1  level
 
-        c_result = self.hitax_index_cleanup(c_result)
+        c_result = self.hitax_cleanup(c_result)
         c_result = c_result.set_index(md_result_valid.index.values)
         c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
         # file	detection_category	detection_bbox	detection_conf	bbox_rank   failure pred_1	prob_1	pred_2	prob_2	pred_3	prob_3
