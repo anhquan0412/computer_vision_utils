@@ -110,6 +110,33 @@ def _create_detections(df,class_thres=0):
     return {"file":f, "detections":detections}
 
 
+def _create_detections_hier(df,class_thres=0):
+    if isinstance(df, pd.Series): df = df.to_frame().T
+    
+    pred_n = len([c for c in df.columns if 'pred' in c])
+    detections=[]
+    for f,cat,conf,bbox,fa,*predprobs in df[['file','detection_category','detection_conf','detection_bbox','failure']+\
+                                           [f'pred_{i+1}' for i in range(pred_n)]+\
+                                           [f'prob_{i+1}' for i in range(pred_n)]].values:
+        if fa is not None and fa is not np.NaN:
+            return {"file":f, "failure": str(fa)}
+        if cat is None or cat is np.NaN:
+            return {"file":f, "detections": []}
+        _inner={}
+        _inner["category"]=str(int(cat))
+        _inner["conf"]=truncate_float(conf,precision=3)
+        _inner["bbox"]=truncate_float_array(bbox,precision=4)
+        if len(predprobs):
+            class_results=[]
+            for i in range(pred_n):
+                _pred,_prob=predprobs[i],predprobs[i+pred_n]
+                if _prob>=class_thres:
+                    class_results.append([str(int(_pred)),truncate_float(_prob,precision=3)])
+            if len(class_results):
+                _inner["classifications"]=class_results
+        detections.append(_inner)
+    return {"file":f, "detections":detections}
+
 def df_to_mdv5_classification_json(df,class_thres=0.3,n_workers=None):
     df = df.dropna(subset='file')
     if n_workers==1:
@@ -223,6 +250,11 @@ class DetectAndClassify:
                  item_tfms=None, # list of item transformations
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
+                 parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification (hitax)
+                 child2parent=None, # dictionary of child to parent mapping, needed for hitax
+                 child_threshold=0.75, # threshold (for hitax), any child label with probability less than this will be replaced with parent label
+                 parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
+                 rollup_threshold=0.75 # threshold for rollup classification, default is 0.75
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
@@ -232,8 +264,21 @@ class DetectAndClassify:
                                                                  efficient_model=efficient_model,
                                                                  finetuned_model=finetuned_model,
                                                                  item_tfms=item_tfms,
-                                                                 aug_tfms=aug_tfms)
+                                                                 aug_tfms=aug_tfms,
+                                                                 parent_info=parent_info,
+                                                                 child2parent=child2parent,
+                                                                 child_threshold=child_threshold,
+                                                                 parent2child=parent2child,
+                                                                 rollup_threshold=rollup_threshold
+                                                                 )
 
+    def hitax_index_cleanup(self,df):
+        if self.class_inference.is_rollup or (self.class_inference.is_hitax and self.class_inference.child_threshold is not None):
+            # file  detection_bbox  pred_1  prob_1  level
+            # shift index of children (level 2) by len(self.class_inference.parent_info)
+            df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] + len(self.class_inference.parent_info)
+        return df
+            
     def predict(self,
                 img_paths, # list of absolute image paths if not using SAS key, relative paths otherwise, or list of URLs
                 input_container_sas=None, # to get images from a Azure blob container
@@ -250,8 +295,8 @@ class DetectAndClassify:
                 convert_to_json=True # either to convert the predictions (dataframe) to JSON format
                ):
         md_result = self.md_inference.predict(img_paths,input_container_sas,md_threshold,
-                                         checkpoint_path,checkpoint_frequency,
-                                          convert_to_df=self.class_inference is not None)
+                                              checkpoint_path,checkpoint_frequency,
+                                              convert_to_df=self.class_inference is not None)
         # file	detection_category	detection_bbox	detection_conf	bbox_rank	failure
         
         if self.class_inference is None:
@@ -271,11 +316,20 @@ class DetectAndClassify:
                                                 n_workers=n_workers,
                                                 pin_memory=pin_memory
                                                 )
-        # file	detection_bbox	pred_1	pred_2	prob_1	prob_2
-        
+        # default
+        # file	detection_bbox	pred_1	pred_2	pred_3	prob_1	prob_2	prob_3
+
+        # for hitax (with no parent-child merging)
+        # file  detection_bbox  parent_pred_1  parent_prob_1  
+        #                       child_pred_1   child_prob_1 
+
+        # for rollup, or hitax with parent-child merging
+        # file  detection_bbox  pred_1  prob_1  level
+
+        c_result = self.hitax_index_cleanup(c_result)
         c_result = c_result.set_index(md_result_valid.index.values)
         c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
-        # file	detection_category	detection_bbox	detection_conf	bbox_rank failure pred_1	pred_2	prob_1	prob_2
+        # file	detection_category	detection_bbox	detection_conf	bbox_rank   failure pred_1	prob_1	pred_2	prob_2	pred_3	prob_3
         if convert_to_json:
             return df_to_mdv5_classification_json(c_result,class_thres=class_thres,n_workers=n_workers)
         

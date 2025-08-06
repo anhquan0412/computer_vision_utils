@@ -9,6 +9,8 @@ from azure.storage.blob import ContainerClient
 import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image, download_img
 from .common_utils import check_and_fix_http_path
+from .hierarchical_model import load_hier_model, HierarchicalClassificationLoss
+from .hierarchical_rollup import precompute_rollup_maps_dynamic, rollup_predictions_dynamic
 from efficientnet_pytorch import EfficientNet
 from efficientnet_pytorch.utils import efficientnet, efficientnet_params
 from multiprocessing import cpu_count
@@ -363,6 +365,26 @@ def prepare_inference_dataloader(inputs, # list of image paths or tuples of (ima
                                   shuffle=False)
     return dls,valid_idxs
 
+def load_efficientnet_model(finetuned_model, 
+                            efficient_model='efficientnet-b3', 
+                            label_info=None # list of output labels, or the number of labels
+                            ):
+    w, d, s, p = efficientnet_params(efficient_model)
+    blocks_args, global_params = efficientnet(include_top=True,
+                                            width_coefficient=w, 
+                                            depth_coefficient=d, 
+                                            dropout_rate=p, # 0.3
+                                            image_size=s,
+                                            num_classes=label_info if isinstance(label_info,int) else len(label_info),
+                                            )
+    model = EfficientNet(blocks_args, global_params)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    state_dict = torch.load(finetuned_model, map_location=device)
+    ret = model.load_state_dict(state_dict, strict=False)
+    if len(ret.missing_keys):
+        print(f'Missing weights: {ret.missing_keys}')
+    return model
+
 class EffNetClassificationInference:
     def __init__(self,
                  label_info, # list of output labels, or the number of labels
@@ -370,11 +392,14 @@ class EffNetClassificationInference:
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
                  item_tfms=Resize(750), # list of item transformations
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
+                 parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification/rollup classification
+                 child2parent=None, # dictionary of child to parent mapping, needed for hierarchical classification
+                 child_threshold=None, # threshold, any child label with probability less than this will be replaced with parent label, needed for hierarchical classification
+                #  l1_morethan=None, # threshold, any parent label with probability more than this will be chosen, needed for hierarchical classification
+                 parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
+                 rollup_threshold=0.75 # threshold for rollup classification, default is 0.75
                 ):
-        self.label_info = label_info
-        # finetuned_model = Path(finetuned_model)
-        # finetuned_model = finetuned_model.parent/finetuned_model.stem
-
+        
         # check whether finetuned_model string ends with .pth or .pt
         finetuned_model = str(finetuned_model)
         if not (finetuned_model.endswith('.pth') or finetuned_model.endswith('.pt')):
@@ -382,25 +407,44 @@ class EffNetClassificationInference:
         finetuned_model = Path(finetuned_model)
         self.item_tfms = item_tfms
         self.aug_tfms = aug_tfms
+        self.is_hitax = False
+        self.is_rollup = False
+        self.parent_info = parent_info
+        self.label_info = label_info
+        self.child2parent = child2parent
+        self.child_threshold = child_threshold # if defined, 0.75 is the default
+        self.parent2child = parent2child
+        self.rollup_threshold = rollup_threshold
+        self.model = None
+        if parent_info is not None:
+            if child2parent is not None:
+                self.is_hitax = True
+                if isinstance(parent_info,int) or isinstance(label_info,int):
+                    raise Exception('For HiTax model, parent_info and label_info must each be a list of string labels, not number of labels')
+                label_count = len(label_info)
+                parent_count = len(parent_info)
+                assert label_count == len(child2parent), \
+                    f"Label (children) names and child2parent mapping lengths do not match: {label_count} != {len(child2parent)}"
 
-        w, d, s, p = efficientnet_params(efficient_model)
-        blocks_args, global_params = efficientnet(include_top=True,
-                                                width_coefficient=w, 
-                                                depth_coefficient=d, 
-                                                dropout_rate=p, # 0.3
-                                                image_size=s,
-                                                num_classes=label_info if isinstance(label_info,int) else len(label_info),
-                                                )
-        self.model = EfficientNet(blocks_args, global_params)
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        state_dict = torch.load(finetuned_model, map_location=device)
-        ret = self.model.load_state_dict(state_dict, strict=False)
-        if len(ret.missing_keys):
-            print(f'Missing weights: {ret.missing_keys}')
+                self.child2parent_idx = torch.tensor([parent_info.index(child2parent[ch]) for ch in label_info], dtype=torch.int32)
+                self.model = load_hier_model(parent_count = parent_count,
+                                            children_count = label_count,
+                                            lin_dropout_rate=0.3,
+                                            last_hidden=256,
+                                            use_simple_head=True,
+                                            base_model=efficient_model,
+                                            trained_weight_path=finetuned_model,
+                                            )
+            elif parent2child is not None:
+                self.is_rollup = True
+                if isinstance(parent_info,int) or isinstance(label_info,int):
+                    raise Exception('For rollup model, parent_info and label_info must each be a list of string labels, not number of labels')
+                self.agg_maps_2L = precompute_rollup_maps_dynamic([parent_info,label_info], [parent2child])
 
-        # self.model = EfficientNet.from_pretrained(efficient_model,
-        #                                           weights_path=str(finetuned_model)+'.pth',
-        #                                           num_classes=label_info if isinstance(label_info,int) else len(label_info))
+        if self.model is None:
+            self.model = load_efficientnet_model(finetuned_model=finetuned_model,
+                                                 efficient_model=efficient_model,
+                                                 label_info=label_info)
 
     def validate_df(self,df):
         if 'file' in df.columns.tolist():
@@ -415,24 +459,75 @@ class EffNetClassificationInference:
             raise Exception("For dataframe input, the dataframe must have a column named 'file' \
             containing the absolute path of images, and optionally a column named 'detection_bbox' for their bounding boxes")
 
-    def create_output_df(self,inputs,preds,pred_idxs,valid_idxs,name_output):
+    def create_output_df(self,inputs,probs,pred_idxs,valid_idxs,name_output):
         if isinstance(inputs[0],str):
             df= pd.DataFrame(inputs,columns=['file'])
         else:
             df= pd.DataFrame(inputs,columns=['file','detection_bbox'])
 
-        top_n = preds.shape[1]
+        top_n = probs.shape[1]
         df_pred = pd.DataFrame(pred_idxs,columns=[f'pred_{i+1}' for i in range(top_n)])
         if name_output and isinstance(self.label_info,(list,tuple,np.ndarray)):
             df_pred = df_pred.map(lambda x: self.label_info[x])            
-        df_prob = pd.DataFrame(preds,columns=[f'prob_{i+1}' for i in range(top_n)])
-        
+        df_prob = pd.DataFrame(probs,columns=[f'prob_{i+1}' for i in range(top_n)])
+
         df_pred.index=valid_idxs
         df_prob.index=valid_idxs
         
         df = pd.concat([df,df_pred,df_prob],axis=1)
+        # file	detection_bbox	pred_1	pred_2	pred_3	prob_1	prob_2	prob_3
         return df
-        
+
+    def create_output_df_hitax_merge(self,inputs,probs,preds,level,valid_idxs,name_output,is_rollup=False):
+        if isinstance(inputs[0],str):
+            df= pd.DataFrame(inputs,columns=['file'])
+        else:
+            df= pd.DataFrame(inputs,columns=['file','detection_bbox'])
+
+        df_pred = pd.DataFrame(preds,columns=['pred_1'])
+        df_prob = pd.DataFrame(probs,columns=['prob_1'])
+        df_level = pd.DataFrame(level,columns=['level'])
+        df_pred.index=valid_idxs
+        df_prob.index=valid_idxs
+        df_level.index=valid_idxs
+        df = pd.concat([df,df_pred,df_prob,df_level],axis=1)
+        if isinstance(self.label_info,(list,tuple,np.ndarray)) and isinstance(self.parent_info,(list,tuple,np.ndarray)):
+            if is_rollup and not name_output:
+                # since rollup output (pred_1) is string labels, for not name_output, we need to convert them to indices
+                parent2idx = {v:i for i,v in enumerate(self.parent_info)}
+                label2idx = {v:i for i,v in enumerate(self.label_info)}
+                df.loc[(~df['level'].isna() & df['level']==1),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==1)].map(lambda x: parent2idx[x])
+                df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2)].map(lambda x: label2idx[x])
+            elif not is_rollup and name_output:
+                # this is hitax with only 1 prediction pred_1 each row (which is an index)
+                df.loc[(~df['level'].isna() & df['level']==1),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==1)].map(lambda x: self.parent_info[x])
+                df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2)].map(lambda x: self.label_info[x])
+        # file  detection_bbox  pred_1  prob_1  level  
+        return df
+
+    def create_output_df_hitax(self,inputs,prob_l1,pred_l1_idxs,prob_l2,pred_l2_idxs,valid_idxs,name_output):
+        if isinstance(inputs[0],str):
+            df= pd.DataFrame(inputs,columns=['file'])
+        else:
+            df= pd.DataFrame(inputs,columns=['file','detection_bbox'])
+        top_n = prob_l2.shape[1]
+        df_l1_pred = pd.DataFrame(pred_l1_idxs,columns=[f'parent_pred_{i+1}' for i in range(top_n)])
+        df_l2_pred = pd.DataFrame(pred_l2_idxs,columns=[f'child_pred_{i+1}' for i in range(top_n)])
+        if name_output and isinstance(self.parent_info,(list,tuple,np.ndarray)):
+            df_l1_pred = df_l1_pred.map(lambda x: self.parent_info[x])
+            df_l2_pred = df_l2_pred.map(lambda x: self.label_info[x])
+        df_l1_prob = pd.DataFrame(prob_l1,columns=[f'parent_prob_{i+1}' for i in range(top_n)])
+        df_l2_prob = pd.DataFrame(prob_l2,columns=[f'child_prob_{i+1}' for i in range(top_n)])
+        df_l1_pred.index=valid_idxs
+        df_l2_pred.index=valid_idxs
+        df_l1_prob.index=valid_idxs
+        df_l2_prob.index=valid_idxs
+        df = pd.concat([df,df_l1_pred,df_l1_prob,df_l2_pred,df_l2_prob],axis=1)
+        # file  detection_bbox  parent_pred_1  parent_prob_1  
+        #                       child_pred_1   child_prob_1 
+        return df
+
+
     def predict(self,
                 inputs, # can be list of img paths, list of tuples, or dataframe
                 input_container_sas=None, # SAS for accessing images in Blob Container
@@ -460,18 +555,70 @@ class EffNetClassificationInference:
                                                       batch_size=batch_size,
                                                       pin_memory=pin_memory,
                                                       n_workers=n_workers)
+        
+        if not self.is_hitax: # including normal classification and rollup classification
+            loss_func = CrossEntropyLossFlat()
+        else:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            loss_func = HierarchicalClassificationLoss(self.parent_info if isinstance(self.parent_info,int) else len(self.parent_info),
+                                                       l1_weight=1,
+                                                       l2_weight=2,
+                                                       consistency_weight=0,
+                                                       focal_gamma=1.0,
+                                                       child_to_parent_mapping= self.child2parent_idx.to(device))
+        learner = Learner(dls,self.model,
+                          loss_func = loss_func)
 
-        learner = Learner(dls,self.model,loss_func = CrossEntropyLossFlat())
-        # _ = learner.load(self.finetuned_model)
-
-        if tta_n>0:
+        if tta_n>0 and not self.is_hitax:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
         else:
             preds = learner.get_preds(dl = dls.valid)[0]
 
-        preds = torch.round(preds,decimals = prob_round)
-        preds,pred_idxs = preds.sort(dim=1,descending=True)
-        preds = preds[:,:pred_topn]
-        pred_idxs = pred_idxs[:,:pred_topn]
+        if not self.is_hitax:
+            if not self.is_rollup:
+                # default
+                preds = torch.round(preds,decimals = prob_round)
+                preds,pred_idxs = preds.sort(dim=1,descending=True)
+                preds = preds[:,:pred_topn]
+                pred_idxs = pred_idxs[:,:pred_topn]
+                return self.create_output_df(inputs,preds,pred_idxs,valid_idxs,name_output)
+            else:
+                # rollup
+                preds = torch.round(preds,decimals = 4)
+                df_preds_rollup = rollup_predictions_dynamic(softmax_most_specific=preds,
+                                                             all_level_labels=[self.parent_info,self.label_info],
+                                                             aggregation_maps=self.agg_maps_2L,
+                                                             threshold=self.rollup_threshold)
+                # 'prediction' 'probability' 'level' 'passes_threshold'
+                # 'level' is 1 for parent, 2 for child
+                pred_str = df_preds_rollup['prediction'].values
+                level = df_preds_rollup['level'].values
+                probs = df_preds_rollup['probability'].values
+                return self.create_output_df_hitax_merge(inputs,probs,pred_str,level,valid_idxs,name_output,
+                                                          is_rollup=True)
         
-        return self.create_output_df(inputs,preds,pred_idxs,valid_idxs,name_output)
+        # hitax
+        parent_length = self.parent_info if isinstance(self.parent_info,int) else len(self.parent_info)
+        pred_l1_prob = torch.round(preds[:,:len(parent_length)].softmax(axis=1),decimals=prob_round) # parent probabilities (level 1)
+        pred_l2_prob = torch.round(preds[:,len(parent_length):].softmax(axis=1),decimals=prob_round) # child probabilities (level 2)
+        pred_l1_prob,pred_l1_idxs = pred_l1_prob.sort(dim=1,descending=True)
+        pred_l2_prob,pred_l2_idxs = pred_l2_prob.sort(dim=1,descending=True)
+        if self.child_threshold is not None:
+            pred_l1_prob = pred_l1_prob[:,0]
+            pred_l2_prob = pred_l2_prob[:,0]
+            pred_l1_idxs = pred_l1_idxs[:,0]
+            pred_l2_idxs = pred_l2_idxs[:,0]
+            # if child probability is less than threshold, replace with parent probability
+            _mask = pred_l2_prob < self.child_threshold
+            pred_l2_prob[_mask] = pred_l1_prob[_mask]
+            pred_l2_idxs[_mask] = pred_l1_idxs[_mask]
+            # 'level' is 1 for parent (that was replaced), 2 for child
+            level= torch.where(_mask,1,2)
+            return self.create_output_df_hitax_merge(inputs,pred_l2_prob,pred_l2_idxs,level,valid_idxs,name_output,is_rollup=False)
+        
+        pred_l1_prob = pred_l1_prob[:,:pred_topn]
+        pred_l2_prob = pred_l2_prob[:,:pred_topn]
+        pred_l1_idxs = pred_l1_idxs[:,:pred_topn]
+        pred_l2_idxs = pred_l2_idxs[:,:pred_topn]
+        return self.create_output_df_hitax(inputs,pred_l1_prob,pred_l1_idxs,pred_l2_prob,pred_l2_idxs,valid_idxs,name_output)
+        
