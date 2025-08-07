@@ -221,7 +221,7 @@ class DetectAndClassify:
                  item_tfms=None, # list of item transformations
                  efficient_model='efficientnet-b3', # name of pretrained efficient model
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
-                 parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification (hitax)
+                 parent_info=None, # list of parent labels, or number of parent labels, needed for hierarchical classification (hitax)
                  child2parent=None, # dictionary of child to parent mapping (hitax)
                  hitax_output=None, # None for merged output, 'parent' for parent only, 'child' for child only (hitax)
                  child_threshold=0.75, # threshold (for hitax), any child label with probability less than this will be replaced with parent label
@@ -253,14 +253,23 @@ class DetectAndClassify:
             # shift index of children (level 2) by len(self.class_inference.parent_info)
             df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] + len(self.class_inference.parent_info)
             df = df.drop(columns=['level'])
-
+            return df
+            
         if self.class_inference.is_hitax and self.hitax_output is not None:
             if self.hitax_output == 'child':
                 parent_cols = [c for c in df.columns if 'parent_' in c]
                 df = df.drop(columns=parent_cols)
+                # rename child_pred_1 to pred_1, child_prob_1 to prob_1, etc.
+                n_preds = [c for c in df.columns if 'child_pred_' in c]
+                df = df.rename(columns={f'child_pred_{i+1}': f'pred_{i+1}' for i in range(len(n_preds))})
+                df = df.rename(columns={f'child_prob_{i+1}': f'prob_{i+1}' for i in range(len(n_preds))})
             elif self.hitax_output == 'parent':
                 child_cols = [c for c in df.columns if 'child_' in c]
                 df = df.drop(columns=child_cols)
+                # rename parent_pred_1 to pred_1, parent_prob_1 to prob_1, etc.
+                n_preds = [c for c in df.columns if 'parent_pred_' in c]
+                df = df.rename(columns={f'parent_pred_{i+1}': f'pred_{i+1}' for i in range(len(n_preds))})
+                df = df.rename(columns={f'parent_prob_{i+1}': f'prob_{i+1}' for i in range(len(n_preds))})
         return df
             
     def predict(self,

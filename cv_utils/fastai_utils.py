@@ -439,6 +439,8 @@ class EffNetClassificationInference:
                 self.is_rollup = True
                 if isinstance(parent_info,int) or isinstance(label_info,int):
                     raise Exception('For rollup model, parent_info and label_info must each be a list of string labels, not number of labels')
+                assert len(parent_info) == len(parent2child), \
+                    f"Parent names and parent2child mapping lengths do not match: {len(parent_info)} != {len(parent2child)}"
                 self.agg_maps_2L = precompute_rollup_maps_dynamic([parent_info,label_info], [parent2child])
 
         if self.model is None:
