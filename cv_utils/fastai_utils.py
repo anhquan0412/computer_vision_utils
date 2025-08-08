@@ -394,10 +394,9 @@ class EffNetClassificationInference:
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                  parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification/rollup classification
                  child2parent=None, # dictionary of child to parent mapping, needed for hierarchical classification
-                 child_threshold=None, # threshold, any child label with probability less than this will be replaced with parent label, needed for hierarchical classification
-                #  l1_morethan=None, # threshold, any parent label with probability more than this will be chosen, needed for hierarchical classification
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
-                 rollup_threshold=0.75 # threshold for rollup classification, default is 0.75
+                 hitax_threshold=0.75, # threshold for for hitax or rollup classification, default is 0.75
+                 #  l1_morethan=None, # threshold, any parent label with probability more than this will be chosen, needed for hierarchical classification
                 ):
         
         # check whether finetuned_model string ends with .pth or .pt
@@ -412,9 +411,9 @@ class EffNetClassificationInference:
         self.parent_info = parent_info
         self.label_info = label_info
         self.child2parent = child2parent
-        self.child_threshold = child_threshold # if defined, 0.75 is the default
+        self.hitax_threshold = hitax_threshold
         self.parent2child = parent2child
-        self.rollup_threshold = rollup_threshold
+
         self.model = None
         if parent_info is not None:
             if child2parent is not None:
@@ -591,7 +590,7 @@ class EffNetClassificationInference:
                 df_preds_rollup = rollup_predictions_dynamic(softmax_most_specific=preds,
                                                              all_level_labels=[self.parent_info,self.label_info],
                                                              aggregation_maps=self.agg_maps_2L,
-                                                             threshold=self.rollup_threshold)
+                                                             threshold=self.hitax_threshold)
                 # 'prediction' 'probability' 'level' 'passes_threshold'
                 # 'level' is 1 for parent, 2 for child
                 pred_str = df_preds_rollup['prediction'].values
@@ -606,13 +605,13 @@ class EffNetClassificationInference:
         pred_l2_prob = torch.round(preds[:,len(parent_length):].softmax(axis=1),decimals=prob_round) # child probabilities (level 2)
         pred_l1_prob,pred_l1_idxs = pred_l1_prob.sort(dim=1,descending=True)
         pred_l2_prob,pred_l2_idxs = pred_l2_prob.sort(dim=1,descending=True)
-        if self.child_threshold is not None:
+        if self.hitax_threshold is not None:
             pred_l1_prob = pred_l1_prob[:,0]
             pred_l2_prob = pred_l2_prob[:,0]
             pred_l1_idxs = pred_l1_idxs[:,0]
             pred_l2_idxs = pred_l2_idxs[:,0]
             # if child probability is less than threshold, replace with parent probability
-            _mask = pred_l2_prob < self.child_threshold
+            _mask = pred_l2_prob < self.hitax_threshold
             pred_l2_prob[_mask] = pred_l1_prob[_mask]
             pred_l2_idxs[_mask] = pred_l1_idxs[_mask]
             # 'level' is 1 for parent (that was replaced), 2 for child

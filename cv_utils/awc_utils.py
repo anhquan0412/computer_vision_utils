@@ -82,7 +82,7 @@ def mdv5_json_to_df(json_file):
     return df
 
 
-def _create_detections(df,class_thres=0):
+def _create_detections(df,class_threshold=0):
     if isinstance(df, pd.Series): df = df.to_frame().T
     
     pred_n = len([c for c in df.columns if 'pred' in c])
@@ -102,7 +102,7 @@ def _create_detections(df,class_thres=0):
             class_results=[]
             for i in range(pred_n):
                 _pred,_prob=predprobs[i],predprobs[i+pred_n]
-                if _prob>=class_thres:
+                if _prob>=class_threshold:
                     class_results.append([str(int(_pred)),truncate_float(_prob,precision=3)])
             if len(class_results):
                 _inner["classifications"]=class_results
@@ -110,11 +110,11 @@ def _create_detections(df,class_thres=0):
     return {"file":f, "detections":detections}
 
 
-def df_to_mdv5_classification_json(df,class_thres=0.3,n_workers=None):
+def df_to_mdv5_classification_json(df,class_threshold=0.3,n_workers=None):
     df = df.dropna(subset='file')
     if n_workers==1:
-        return df.groupby('file').apply(_create_detections,class_thres=class_thres)
-    return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_thres=class_thres),n_workers=n_workers)
+        return df.groupby('file').apply(_create_detections,class_threshold=class_threshold)
+    return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_threshold=class_threshold),n_workers=n_workers)
 
 def get_bbox_count_and_conf_rank(df,filter_cat=[]):
     # get bbox count and ranking based on detection confidence
@@ -224,15 +224,16 @@ class DetectAndClassify:
                  parent_info=None, # list of parent labels, or number of parent labels, needed for hierarchical classification (hitax)
                  child2parent=None, # dictionary of child to parent mapping (hitax)
                  hitax_output=None, # None for merged output, 'parent' for parent only, 'child' for child only (hitax)
-                 child_threshold=0.75, # threshold (for hitax), any child label with probability less than this will be replaced with parent label
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
-                 rollup_threshold=0.75 # threshold for rollup classification, default is 0.75
+                 hitax_threshold=0.75 # threshold for for hitax or rollup classification, default is 0.75
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
         self.hitax_output = hitax_output
-        if hitax_output is not None and hitax_output not in ['parent','child']:
-            raise Exception('hitax_output must be either None, "parent" or "child"')
+        if hitax_output is not None:
+            if hitax_output not in ['parent','child']:
+                raise Exception('hitax_output must be either None, "parent" or "child"')
+            hitax_threshold = None
         if finetuned_model is not None and label_info is not None:
             self.label_info = label_info
             self.class_inference = EffNetClassificationInference(label_info=label_info,
@@ -242,13 +243,12 @@ class DetectAndClassify:
                                                                  aug_tfms=aug_tfms,
                                                                  parent_info=parent_info,
                                                                  child2parent=child2parent,
-                                                                 child_threshold=child_threshold if hitax_output is None else None,
                                                                  parent2child=parent2child,
-                                                                 rollup_threshold=rollup_threshold
+                                                                 hitax_threshold=hitax_threshold
                                                                  )
 
     def hitax_cleanup(self,df):
-        if self.class_inference.is_rollup or (self.class_inference.is_hitax and self.class_inference.child_threshold is not None):
+        if self.class_inference.is_rollup or (self.class_inference.is_hitax and self.class_inference.hitax_threshold is not None):
             # file  detection_bbox  pred_1  prob_1  level
             # shift index of children (level 2) by len(self.class_inference.parent_info)
             df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] + len(self.class_inference.parent_info)
@@ -282,7 +282,7 @@ class DetectAndClassify:
                 tta_n=0, # whether to perform test time augmentation, and how many
                 pred_topn=1, # to return top n predictions
                 prob_round=3, # number of decimal points to round the probability
-                class_thres=0.3, # the probability threshold to keep in the JSON file output,
+                class_threshold=0.3, # the probability threshold to keep in the JSON file output,
                 n_workers=None, # number of workers to use for parallel processing
                 pin_memory=False, # If True, the data loader (classification only) will copy Tensors into CUDA pinned memory before returning them
                 convert_to_json=True # either to convert the predictions (dataframe) to JSON format
@@ -324,6 +324,6 @@ class DetectAndClassify:
         c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
         # file	detection_category	detection_bbox	detection_conf	bbox_rank   failure pred_1	prob_1	pred_2	prob_2	pred_3	prob_3
         if convert_to_json:
-            return df_to_mdv5_classification_json(c_result,class_thres=class_thres,n_workers=n_workers)
-        
+            return df_to_mdv5_classification_json(c_result,class_threshold=class_threshold,n_workers=n_workers)
+
         return c_result
