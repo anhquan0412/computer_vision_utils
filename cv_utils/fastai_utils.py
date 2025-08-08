@@ -92,11 +92,11 @@ def PILImageFactory(container_client=None):
     PILMDImage.input_container_client = container_client
     return PILMDImage
 
-def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False,n_workers=None):
+def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
-    from .fastai_utils import ImageDataLoaders_from_df
+    from .fastai_train_utils import ImageDataLoaders_from_df
     
     use_wandb = 'WANDB_PROJECT' in config
 
@@ -118,6 +118,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
         else:
             _item_tfms = config['ITEM_RESIZE']
 
+    n_workers = config['N_WORKERS'] if 'N_WORKERS' in config else 4
     dls = ImageDataLoaders_from_df(df, 
                                    path=config['IMAGE_DIRECTORY'],
                                    seed=seed,
@@ -127,7 +128,8 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                                    item_tfms= _item_tfms,
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
-                                   batch_tfms=aug_tfms
+                                   batch_tfms=aug_tfms,
+                                   n_workers=n_workers
                                   )
         
     if not label_names:
@@ -240,7 +242,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 # df = df.sample(9000,random_state=42,ignore_index=True)
 # _ = fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
 
-def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None,n_workers=None):
+def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None):
     # df should have these columns
     # - file_and_bbox: a tuple/list of (file_path, bbox), or a list of file_path. file_path is relative path
     # - parent_label: the parent label (string)
@@ -248,7 +250,7 @@ def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None
     # - concat_label: the concatenated label (string) of parent and children labels, separated by symbol $
     # - is_val: boolean, True if the row is for validation set, False otherwise
 
-    from .fastai_utils import ImageDataLoaders_from_df
+    from .fastai_train_utils import ImageDataLoaders_from_df
 
     parent_labels = np.sort(df[parent_label].unique()).tolist()
     children_labels = np.sort(df[children_label].unique()).tolist()
@@ -274,7 +276,7 @@ def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None
         else:
             _item_tfms = config['ITEM_RESIZE']
     
-
+    n_workers = config['N_WORKERS'] if 'N_WORKERS' in config else 4
     dls = ImageDataLoaders_from_df(df, 
                                    path=config['IMAGE_DIRECTORY'],
                                    seed=seed,
@@ -285,7 +287,8 @@ def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None
                                    item_tfms= _item_tfms,
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
-                                   batch_tfms=aug_tfms
+                                   batch_tfms=aug_tfms,
+                                   n_workers=n_workers
                                   )
     hier_model = load_hier_model(len(parent_labels),len(children_labels),use_simple_head=True)
     save_directory = Path(config['SAVE_DIRECTORY']) if 'SAVE_DIRECTORY' in config else Path('.')/'hier_model'
@@ -303,7 +306,7 @@ def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None
         os.environ["WANDB_SILENT"] = "true"
         wandb.init(project=config['WANDB_PROJECT'],name=save_name,config=config);
         cbs.append(WandbCallback(log_dataset=False, log_model=False, n_preds=49))
-        
+
     metric_lists = get_precision_recall_f1_metrics_group(parent_labels)
 
     l1_weight = config['L1_WEIGHT'] if 'L1_WEIGHT' in config else 1.0
