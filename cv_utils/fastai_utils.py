@@ -9,7 +9,7 @@ from azure.storage.blob import ContainerClient
 import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image, download_img
 from .common_utils import check_and_fix_http_path
-from .hierarchical_model import load_hier_model, HierarchicalClassificationLoss
+from .hierarchical_model import load_hier_model, HierarchicalClassificationLoss,get_precision_recall_f1_metrics_group
 from .hierarchical_rollup import precompute_rollup_maps_dynamic, rollup_predictions_dynamic
 from efficientnet_pytorch import EfficientNet
 from efficientnet_pytorch.utils import efficientnet, efficientnet_params
@@ -96,59 +96,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
-
-    class ColMDReader(DisplayedTransform):
-        "Read `cols` in `row` with potential `pref` and `suff`"
-        # https://github.com/fastai/fastai/blob/master/fastai/data/transforms.py#L206
-        def __init__(self, cols, pref='', suff='', label_delim=None):
-            store_attr()
-            self.pref = str(pref) + os.path.sep if isinstance(pref, Path) else pref
-            self.cols = L(cols)
-
-        def _do_one(self, r, c):
-            o = r[c] if isinstance(c, int) or not c in getattr(r, '_fields', []) else getattr(r, c)
-            # o can be a string (relative_path) or a tuple of (relative_path, bbox_coords)
-            bbox=None
-            if isinstance(o,(list,tuple)) and len(o)==2 and len(o[1])==4:
-                bbox = o[1]
-                o = o[0]
-            if len(self.pref)==0 and len(self.suff)==0 and self.label_delim is None: 
-                return o if not bbox else [[o,bbox]]
-
-            return f'{self.pref}{o}{self.suff}' if not bbox else [[f'{self.pref}{o}{self.suff}',bbox]]
-                        
-
-        def __call__(self, o, **kwargs):
-            if len(self.cols) == 1: return self._do_one(o, self.cols[0])
-            return L(self._do_one(o, c) for c in self.cols)
-        
-    def ImageDataLoaders_from_df(df, path='.', valid_pct=0.2, seed=None, fn_col=0, folder=None, suff='', label_col=1, label_delim=None,
-                y_block=None, valid_col=None, item_tfms=None, batch_tfms=None, **kwargs):
-        "Create from `df` in `path` using `fn_col` and `label_col`"
-        pref = f'{Path(path) if folder is None else Path(path)/folder}{os.path.sep}'
-        
-        if y_block is None:
-            is_multi = (is_listy(label_col) and len(label_col) > 1) or label_delim is not None
-            y_block = MultiCategoryBlock if is_multi else CategoryBlock
-        splitter = RandomSplitter(valid_pct, seed=seed) if valid_col is None else ColSplitter(valid_col)
-
-        PILImageClass = PILImageFactory()
-        col_reader = ColMDReader(fn_col, pref=pref, suff=suff)
-
-        # check, if df[fn_col] also contains bbox, then each bbox must be tuple of float instead of str
-        if not isinstance(fn_col,int):
-            raise Exception('fn_col must be an integer, which is the index of the filename column. Note that this column can contain a tuple of (name,bbox)')
-        if isinstance(df.iloc[0,fn_col],(tuple,list)) and len(df.iloc[0,fn_col])==2 and not isinstance(df.iloc[0,fn_col][1],(tuple,list)):
-            print('Convert bbox to tuple format')
-            df.iloc[:,fn_col] = df.iloc[:,fn_col].apply(lambda x: (x[0],tuple(ast.literal_eval(x[1]))))
-
-        dblock = DataBlock(blocks=(ImageBlock(PILImageClass), y_block),
-                           get_x=col_reader,
-                           get_y=ColReader(label_col, label_delim=label_delim),
-                           splitter=splitter,
-                           item_tfms=item_tfms,
-                           batch_tfms=batch_tfms)
-        return ImageDataLoaders.from_dblock(dblock, df, path=path, num_workers=n_workers, **kwargs)
+    from .fastai_utils import ImageDataLoaders_from_df
     
     use_wandb = 'WANDB_PROJECT' in config
 
@@ -292,6 +240,95 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
 # df = df.sample(9000,random_state=42,ignore_index=True)
 # _ = fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
 
+def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None,n_workers=None):
+    # df should have these columns
+    # - file_and_bbox: a tuple/list of (file_path, bbox), or a list of file_path. file_path is relative path
+    # - parent_label: the parent label (string)
+    # - children_label: the child label (string)
+    # - concat_label: the concatenated label (string) of parent and children labels, separated by symbol $
+    # - is_val: boolean, True if the row is for validation set, False otherwise
+
+    from .fastai_utils import ImageDataLoaders_from_df
+
+    parent_labels = np.sort(df[parent_label].unique()).tolist()
+    children_labels = np.sort(df[children_label].unique()).tolist()
+    child2parent = list(df[[children_label,parent_label]].drop_duplicates().set_index(children_label).to_dict().values())[0]
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    child2parent_idx = torch.tensor([parent_labels.index(child2parent[ch]) for ch in children_labels],dtype=torch.int32).to(device)
+
+    if 'SEED' in config:
+        seed = config['SEED']
+        seed_everything(seed)
+    else:
+        seed=None
+
+    _item_tfms = Resize(750)
+    if 'ITEM_RESIZE' in config:
+        if isinstance(config['ITEM_RESIZE'],int):
+            _item_tfms = Resize(config['ITEM_RESIZE'])
+        elif isinstance(config['ITEM_RESIZE'],str) and not config['ITEM_RESIZE'].lower().strip() in ['none','']:
+            try:
+                _item_tfms = Resize(int(config['ITEM_RESIZE']))
+            except:
+                _item_tfms = Resize(750)            
+        else:
+            _item_tfms = config['ITEM_RESIZE']
+    
+
+    dls = ImageDataLoaders_from_df(df, 
+                                   path=config['IMAGE_DIRECTORY'],
+                                   seed=seed,
+                                   fn_col=0,
+                                   label_col=concat_label,
+                                   label_delim='$',
+                                   valid_col='is_val',
+                                   item_tfms= _item_tfms,
+                                   bs=config['BATCH_SIZE'],
+                                   shuffle=True,
+                                   batch_tfms=aug_tfms
+                                  )
+    hier_model = load_hier_model(len(parent_labels),len(children_labels),use_simple_head=True)
+    save_directory = Path(config['SAVE_DIRECTORY']) if 'SAVE_DIRECTORY' in config else Path('.')/'hier_model'
+    save_directory.mkdir(exist_ok=True,parents=True)
+    save_name = config['SAVE_NAME'] if 'SAVE_NAME' in config else 'hier_model'
+    cbs=[
+        SaveModelCallback(every_epoch=True,
+                          fname=(save_directory/save_name)
+                          ),
+        CSVLogger(fname=(save_directory/f"{save_name}_training_log.csv"), append=True)
+    ]
+
+    use_wandb = 'WANDB_PROJECT' in config
+    if use_wandb:
+        os.environ["WANDB_SILENT"] = "true"
+        wandb.init(project=config['WANDB_PROJECT'],name=save_name,config=config);
+        cbs.append(WandbCallback(log_dataset=False, log_model=False, n_preds=49))
+        
+    metric_lists = get_precision_recall_f1_metrics_group(parent_labels)
+
+    l1_weight = config['L1_WEIGHT'] if 'L1_WEIGHT' in config else 1.0
+    l2_weight = config['L2_WEIGHT'] if 'L2_WEIGHT' in config else 2.0
+    focal_gamma = config['FOCAL_GAMMA'] if 'FOCAL_GAMMA' in config else 1.0
+    learn = Learner(dls, hier_model, 
+                metrics=metric_lists,
+                loss_func = HierarchicalClassificationLoss(len(parent_labels),l1_weight,l2_weight,0.,
+                                                           focal_gamma=focal_gamma,
+                                                          child_to_parent_mapping=child2parent_idx),
+                cbs=cbs
+               ).to_fp16()
+
+    bold_print('training model')
+    epoch = config['EPOCH']
+    
+    learn.unfreeze()
+    learn.fit_one_cycle(epoch,config['LR'],pct_start=config['PCT_START'] if 'PCT_START' in config else 0.25)
+
+    _ax = learn.recorder.plot_loss(show_epochs=True)
+    plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
+    
+    if use_wandb:
+        wandb.finish();
+    return learn
 
 def _verify_images(inps,input_container_sas=None):    
     try:
