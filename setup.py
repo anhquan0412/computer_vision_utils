@@ -16,7 +16,8 @@ setup(
         'Pillow',
         'matplotlib',
         'wandb',
-        'efficientnet-pytorch'
+        'efficientnet-pytorch',
+        'azure-storage-blob'
     ],
     entry_points={
         'console_scripts': [

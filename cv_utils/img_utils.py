@@ -1,4 +1,4 @@
-from typing import Sequence, BinaryIO, Optional
+from typing import Sequence, BinaryIO, Optional, Any, Dict, List
 from PIL import Image, ImageOps
 from megadetector.visualization import visualization_utils as md_viz
 from io import BytesIO
@@ -10,6 +10,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm 
 import logging
+import collections
+import datetime
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -235,3 +238,87 @@ def process_colorcheck_parallel(
 # )
 # with open(f'color_check.json', 'w') as f: 
 #     json.dump(results_dict, f)
+
+
+def sequence_assignment(
+    image_data: List[Dict[str, Any]], 
+    time_gap: int = 3
+) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Assigns sequence IDs to camera trap images based on their location and timestamp.
+
+    This function groups images by their parent directory, sorts them chronologically,
+    and then segments them into sequences. A new sequence is started if the time
+    difference between an image and its predecessor exceeds the specified time_gap.
+
+    Args:
+        image_data: A list of dictionaries, where each dictionary represents an
+                    image and must contain 'file' and 'datetime' keys.
+        time_gap: The maximum time in seconds allowed between consecutive
+                  images in the same sequence. Defaults to 3.
+
+    Returns:
+        A dictionary with a single key 'images', containing a list of
+        dictionaries, each with 'file_name' and its assigned 'seq_id'.
+        
+    Raises:
+        ValueError: If an image dictionary is missing 'file' or 'datetime' keys,
+                    or if the datetime string has an invalid format.
+    """
+    grouped_by_dir = collections.defaultdict(list)
+    for image_info in image_data:
+        try:
+            filepath = Path(image_info['file'])
+            parent_dir = str(filepath.parent)
+            
+            datetime_obj = datetime.datetime.strptime(
+                image_info['datetime'], '%Y:%m:%d %H:%M:%S'
+            )
+            
+            grouped_by_dir[parent_dir].append({
+                'file': image_info['file'], 
+                'datetime_obj': datetime_obj
+            })
+        except KeyError as e:
+            raise KeyError(f"Input image dictionary is missing required key: {e}")
+        except ValueError:
+            raise ValueError(
+                f"Invalid datetime format for file {image_info.get('file')}. "
+                "Expected 'YYYY:MM:DD HH:MM:SS'."
+            )
+
+    final_results = []
+    time_delta_gap = datetime.timedelta(seconds=time_gap)
+
+    for parent_dir, images_in_group in grouped_by_dir.items():
+        if not images_in_group:
+            continue
+            
+        sorted_images = sorted(
+            images_in_group, 
+            key=lambda x: (x['file'],x['datetime_obj'])
+        )
+
+
+        sequence_counter = 1
+        
+        # The first image always starts the first sequence for its directory.
+        first_image = sorted_images[0]
+        seq_id = f"{parent_dir}/sequence_{sequence_counter}"
+        final_results.append({'file_name': first_image['file'], 'seq_id': seq_id})
+
+        for i in range(1, len(sorted_images)):
+            current_image = sorted_images[i]
+            previous_image = sorted_images[i - 1]
+
+            # If the gap is too large, start a new sequence.
+            if current_image['datetime_obj'] - previous_image['datetime_obj'] > time_delta_gap:
+                sequence_counter += 1
+            
+            seq_id = f"{parent_dir}/sequence_{sequence_counter}"
+            final_results.append({
+                'file_name': current_image['file'], 
+                'seq_id': seq_id
+            })
+            
+    return {'images': final_results}

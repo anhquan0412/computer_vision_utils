@@ -203,44 +203,6 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     return learn
 
 
-# example usage
-# aug_tfms = aug_transforms(size=224,
-#                          max_rotate=45, # 10
-#                          max_zoom=1.3, # 1.1
-#                          min_scale=1., # 1.
-#                          do_flip=True,
-#                          max_lighting=0.5, # 0.2
-#                          p_lighting=0.75, # 0.75
-#                         )
-
-# config = {
-#     'SEED':42,
-#     'IMAGE_DIRECTORY':'path/to/image/directory',
-#     'ITEM_RESIZE':750,
-#     'BATCH_SIZE':64,
-#     'EFFICIENT_MODEL':'efficientnet-b3',
-#     'EPOCH':4,
-#     'FREEZE_EPOCH':1,
-#     'LR':0.0021,
-#     'SAVE_NAME':'name_for_this_run',
-#     'SAVE_DIRECTORY':'absolute/path/to/save/directory',
-#     'SAVE_EVERY_EPOCH':True,
-#     'WANDB_PROJECT':'wandb_project_name',
-#     'LOG_LABEL_METRICS':['precision','f1']
-# }
-
-# # bold_print('reading config')
-# # with open('config.json', 'r') as json_file:
-# #     config = json.load(json_file)
-
-
-# bold_print('load mastersheet')
-# df = pd.read_pickle('path/to/mastersheet.pkl')
-# df['is_val'] = df.split.map({'train':False,'val':True,'test':True})
-# df = df[['cropped_file','label','is_val','detection_conf','split']].copy()
-# df = df.sample(9000,random_state=42,ignore_index=True)
-# _ = fastai_cv_train_efficientnet(config,df,aug_tfms=aug_tfms,save_valid_pred=True)
-
 def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None):
     # df should have these columns
     # - file_and_bbox: a tuple/list of (file_path, bbox), or a list of file_path. file_path is relative path
