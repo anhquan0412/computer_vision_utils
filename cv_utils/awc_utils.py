@@ -9,7 +9,8 @@ import time
 from azure.storage.blob import ContainerClient
 import os
 import json
-from megadetector.detection.run_detector import load_detector
+from megadetector.detection import run_detector
+from megadetector.detection.run_detector_batch import load_and_run_detector_batch, get_image_datetime
 from megadetector.utils.ct_utils import truncate_float,truncate_float_array
 from .viz_utils import visualize_images
 from .img_utils import download_img
@@ -68,17 +69,18 @@ def mdv5_json_to_df(json_file):
     results=[]
     for img in json_file['images']:
         img_file = img['file']
+        img_datetime = img.get('datetime', None)
         if 'detections' not in img or img['detections'] is None or len(img['detections'])==0:
-            result = [Path(img_file).as_posix(),None,None,None,None,None]
+            result = [Path(img_file).as_posix(),img_datetime,None,None,None,None,None]
             if 'failure' in img:
                 result[-1] = img['failure']
             results.append(result)
 
         else:
             for i,_d in enumerate(img['detections']):
-                results.append([Path(img_file).as_posix(),_d['category'],tuple(_d['bbox']),_d['conf'],i,None])
+                results.append([Path(img_file).as_posix(),img_datetime,_d['category'],tuple(_d['bbox']),_d['conf'],i,None])
 
-    df = pd.DataFrame(results,columns=['file','detection_category','detection_bbox','detection_conf','bbox_rank','failure'])
+    df = pd.DataFrame(results,columns=['file','datetime','detection_category','detection_bbox','detection_conf','bbox_rank','failure'])
     return df
 
 
@@ -87,13 +89,13 @@ def _create_detections(df,class_threshold=0):
     
     pred_n = len([c for c in df.columns if 'pred' in c])
     detections=[]
-    for f,cat,conf,bbox,fa,*predprobs in df[['file','detection_category','detection_conf','detection_bbox','failure']+\
+    for f,dt,cat,conf,bbox,fa,*predprobs in df[['file','datetime','detection_category','detection_conf','detection_bbox','failure']+\
                                            [f'pred_{i+1}' for i in range(pred_n)]+\
                                            [f'prob_{i+1}' for i in range(pred_n)]].values:
         if fa is not None and fa is not np.NaN:
             return {"file":f, "failure": str(fa)}
         if cat is None or cat is np.NaN:
-            return {"file":f, "detections": []}
+            return {"file":f, "detections": [],"datetime":dt}
         _inner={}
         _inner["category"]=str(int(cat))
         _inner["conf"]=truncate_float(conf,precision=3)
@@ -107,7 +109,7 @@ def _create_detections(df,class_threshold=0):
             if len(class_results):
                 _inner["classifications"]=class_results
         detections.append(_inner)
-    return {"file":f, "detections":detections}
+    return {"file":f, "detections":detections,"datetime":dt}
 
 
 def df_to_mdv5_classification_json(df,class_threshold=0.3,n_workers=None):
@@ -149,7 +151,7 @@ class MegaDetectorInference:
     def __init__(self,
                  md_path=None, # absolute path to megadetector weight
                 ):
-        self.detector = load_detector(str(md_path))
+        self.md_path = str(md_path)
     
     def write_checkpoint(self,results,checkpoint_path):
         # github.com/agentmorris/MegaDetector/blob/d706f9c31ea0a1f2fef5b4a3846737d3d4cf9d64/megadetector/detection/run_detector_batch.py#L793
@@ -170,11 +172,13 @@ class MegaDetectorInference:
         
     def predict(self,
                 img_paths, # list of absolute image paths if not using SAS key, relative paths otherwise, or list of URLs
+                run_batch=True, # whether to run the detector in batch mode or one image at a time
                 input_container_sas=None, # to get images from a Azure blob container
                 md_threshold=0.1, # megadetector bbox confidence threshold, for NMS
                 checkpoint_path=None, # absolute path to save check point
                 checkpoint_frequency=0, # write results to JSON checkpoint file every n images, set 0 to disable
                 convert_to_df=False, # either to convert the results (list of dictionary) to dataframe format
+                n_cores=1, # number of cores to use for parallel processing, ignored if we're running on a GPU
                ):
         if checkpoint_path is not None and checkpoint_frequency<=0:
             raise Exception('Invalid checkpoint frequency, please input a positive value')
@@ -185,27 +189,41 @@ class MegaDetectorInference:
         if input_container_sas is not None:
             input_container_client = ContainerClient.from_container_url(input_container_sas)
         
-        results = []
-        img_count=0
-        for img_path in tqdm(img_paths):
-            img_count+=1
-            try:
-                img = download_img(img_path,input_container_client,ignore_exif_rotation=True,load_img=False)
-            except Exception as e:
-                print(f'File {img_path}, Download image exception: {e}')
-                result= {'file': img_path,
-                         'failure': "Failure image access",
-                        }
-            else:
-                result = self.detector.generate_detections_one_image(img, 
-                                                                     img_path, 
-                                                                     detection_threshold=md_threshold)
-                         
-            results.append(result)
-
-            if checkpoint_frequency!=0 and ((img_count%checkpoint_frequency)==0 or img_count==len(img_paths)):
-                print(f'Write checkpoint for {img_count} images')
-                self.write_checkpoint(results,Path(checkpoint_path))
+        if not run_batch:
+            md_detector = run_detector.load_detector(self.md_path)
+            results = []
+            img_count=0
+            for img_path in tqdm(img_paths):
+                img_count+=1
+                try:
+                    img = download_img(img_path,input_container_client,ignore_exif_rotation=True,load_img=False)
+                except Exception as e:
+                    print(f'File {img_path}, Download image exception: {e}')
+                    result= {'file': img_path,
+                            'failure': "Failure image access",
+                            }
+                else:
+                    result = md_detector.generate_detections_one_image(img, 
+                                                                       img_path, 
+                                                                       detection_threshold=md_threshold)
+                    
+                    result['datetime'] = get_image_datetime(img)
+                            
+                results.append(result)
+                
+                if checkpoint_frequency!=0 and ((img_count%checkpoint_frequency)==0 or img_count==len(img_paths)):
+                    print(f'Write checkpoint for {img_count} images')
+                    self.write_checkpoint(results,Path(checkpoint_path))
+        else:
+            results = load_and_run_detector_batch(self.md_path, 
+                                                  img_paths,
+                                                  confidence_threshold=md_threshold,
+                                                  quiet=True,
+                                                  include_image_timestamp=True,
+                                                  checkpoint_path=checkpoint_path,
+                                                  checkpoint_frequency=checkpoint_frequency,
+                                                  n_cores=n_cores
+                                                  )
 
         if convert_to_df:
             results = mdv5_json_to_df({'images':results})
@@ -287,10 +305,17 @@ class DetectAndClassify:
                 pin_memory=False, # If True, the data loader (classification only) will copy Tensors into CUDA pinned memory before returning them
                 convert_to_json=True # either to convert the predictions (dataframe) to JSON format
                ):
-        md_result = self.md_inference.predict(img_paths,input_container_sas,md_threshold,
-                                              checkpoint_path,checkpoint_frequency,
-                                              convert_to_df=self.class_inference is not None)
-        # file	detection_category	detection_bbox	detection_conf	bbox_rank	failure
+        md_result = self.md_inference.predict(img_paths,
+                                              run_batch=True,
+                                              input_container_sas=input_container_sas,
+                                              md_threshold=md_threshold,
+                                              checkpoint_path=checkpoint_path,
+                                              checkpoint_frequency=checkpoint_frequency,
+                                              convert_to_df=self.class_inference is not None,
+                                              n_cores=n_workers
+                                              )
+        # md_result is a dataframe with columns:
+        # file	datetime    detection_category	detection_bbox	detection_conf	bbox_rank	failure
         
         if self.class_inference is None:
             return md_result
@@ -322,7 +347,7 @@ class DetectAndClassify:
         c_result = self.hitax_cleanup(c_result)
         c_result = c_result.set_index(md_result_valid.index.values)
         c_result = pd.concat([md_result,c_result.iloc[:,2:]],axis=1) # concat the preds and probs to md_result
-        # file	detection_category	detection_bbox	detection_conf	bbox_rank   failure pred_1	prob_1	pred_2	prob_2	pred_3	prob_3
+        # file	datetime    detection_category	detection_bbox	detection_conf	bbox_rank   failure pred_1	prob_1	pred_2	prob_2	pred_3	prob_3
         if convert_to_json:
             return df_to_mdv5_classification_json(c_result,class_threshold=class_threshold,n_workers=n_workers)
 
