@@ -15,6 +15,9 @@ import datetime
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+azure_logger = logging.getLogger("azure.core.pipeline.policies")
+azure_logger.setLevel(logging.WARNING)
+
 
 def load_local_image(img_path: str |  BinaryIO) -> Optional[Image.Image]:
     """Attempts to load an image from a local path."""
