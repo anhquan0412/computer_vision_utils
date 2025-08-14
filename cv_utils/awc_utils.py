@@ -188,6 +188,7 @@ class MegaDetectorInference:
         input_container_client = None
         if input_container_sas is not None:
             input_container_client = ContainerClient.from_container_url(input_container_sas)
+            run_batch = False
         
         if not run_batch:
             md_detector = run_detector.load_detector(self.md_path)
