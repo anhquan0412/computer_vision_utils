@@ -1,6 +1,6 @@
 import torch
 from typing import List, Dict, Any
-
+import pandas as pd
 # --- 1. Dynamic Pre-computation Helper ---
 
 def precompute_rollup_maps_dynamic(
@@ -130,5 +130,4 @@ def rollup_predictions_dynamic(
                 'level': best_level + 1,
                 'passes_threshold': False
             }
-            
-    return output
+    return pd.DataFrame(output)
