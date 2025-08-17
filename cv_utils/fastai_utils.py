@@ -495,11 +495,11 @@ class EffNetClassificationInference:
         df = pd.concat([df,df_pred,df_prob,df_level],axis=1)
         if isinstance(self.label_info,(list,tuple,np.ndarray)) and isinstance(self.parent_info,(list,tuple,np.ndarray)):
             if is_rollup and not name_output:
-                # since rollup output (pred_1) is string labels, for not name_output, we need to convert them to indices
+                # since rollup output (pred_1) is string labels, not name_output, we need to convert them to indices
                 parent2idx = {v:i for i,v in enumerate(self.parent_info)}
                 label2idx = {v:i for i,v in enumerate(self.label_info)}
-                df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: parent2idx[int(x)])
-                df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'].map(lambda x: label2idx[int(x)])
+                df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: parent2idx[x])
+                df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'].map(lambda x: label2idx[x])
             elif not is_rollup and name_output:
                 # this is hitax with only 1 prediction pred_1 each row (which is an index)
                 df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: self.parent_info[int(x)])
