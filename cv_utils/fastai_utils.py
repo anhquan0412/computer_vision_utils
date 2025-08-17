@@ -453,7 +453,7 @@ class EffNetClassificationInference:
             if len(df)==0: return []
             if 'detection_bbox' in df.columns.tolist():
                 if not isinstance(df['detection_bbox'].values[0],(list,tuple)):
-                    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: None if (x is None or x is np.NaN) else list(ast.literal_eval(x)))
+                    df['detection_bbox'] = df['detection_bbox'].apply(lambda x: None if (x is None or x is np.nan) else list(ast.literal_eval(x)))
                 return df[['file','detection_bbox']].values
             else:
                 return df['file'].values

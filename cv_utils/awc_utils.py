@@ -92,9 +92,9 @@ def _create_detections(df,class_threshold=0):
     for f,dt,cat,conf,bbox,fa,*predprobs in df[['file','datetime','detection_category','detection_conf','detection_bbox','failure']+\
                                            [f'pred_{i+1}' for i in range(pred_n)]+\
                                            [f'prob_{i+1}' for i in range(pred_n)]].values:
-        if fa is not None and fa is not np.NaN:
+        if fa is not None and fa is not np.nan:
             return {"file":f, "failure": str(fa)}
-        if cat is None or cat is np.NaN:
+        if cat is None or cat is np.nan:
             return {"file":f, "detections": [],"datetime":dt}
         _inner={}
         _inner["category"]=str(int(cat))
