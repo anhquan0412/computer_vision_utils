@@ -330,7 +330,7 @@ def get_gradcam_results(scorer, # DetectAndClassify object
                                 pred_topn=1,
                                 n_workers=1
                                )
-    detections = detections[detections['failure'].isna() & (detections['detection_category'].astype(int).isin([1]))].copy().reset_index(drop=True)
+    detections = detections[(detections['failure'].isna()) & (detections['detection_category'].astype(int).isin([1]))].copy().reset_index(drop=True)
     gc = GradCam(scorer.class_inference.model,label_names=scorer.class_inference.label_info)
     
     results = gc.get_gradcam_images(detections,

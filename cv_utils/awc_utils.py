@@ -270,7 +270,7 @@ class DetectAndClassify:
         if self.class_inference.is_rollup or (self.class_inference.is_hitax and self.class_inference.hitax_threshold is not None):
             # file  detection_bbox  pred_1  prob_1  level
             # shift index of children (level 2) by len(self.class_inference.parent_info)
-            df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] = df.loc[(~df['level'].isna() & df['level']==2),'pred_1'] + len(self.class_inference.parent_info)
+            df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] + len(self.class_inference.parent_info)
             df = df.drop(columns=['level'])
             return df
             
