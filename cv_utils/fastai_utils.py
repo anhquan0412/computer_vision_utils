@@ -602,8 +602,8 @@ class EffNetClassificationInference:
         
         # hitax
         parent_length = self.parent_info if isinstance(self.parent_info,int) else len(self.parent_info)
-        pred_l1_prob = torch.round(preds[:,:len(parent_length)].softmax(axis=1),decimals=prob_round) # parent probabilities (level 1)
-        pred_l2_prob = torch.round(preds[:,len(parent_length):].softmax(axis=1),decimals=prob_round) # child probabilities (level 2)
+        pred_l1_prob = torch.round(preds[:,:parent_length].softmax(axis=1),decimals=prob_round) # parent probabilities (level 1)
+        pred_l2_prob = torch.round(preds[:,parent_length:].softmax(axis=1),decimals=prob_round) # child probabilities (level 2)
         pred_l1_prob,pred_l1_idxs = pred_l1_prob.sort(dim=1,descending=True)
         pred_l2_prob,pred_l2_idxs = pred_l2_prob.sort(dim=1,descending=True)
         if self.hitax_threshold is not None:
