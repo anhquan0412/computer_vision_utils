@@ -470,7 +470,7 @@ class EffNetClassificationInference:
         top_n = probs.shape[1]
         df_pred = pd.DataFrame(pred_idxs,columns=[f'pred_{i+1}' for i in range(top_n)])
         if name_output and isinstance(self.label_info,(list,tuple,np.ndarray)):
-            df_pred = df_pred.map(lambda x: self.label_info[x])            
+            df_pred = df_pred.map(lambda x: self.label_info[int(x)])            
         df_prob = pd.DataFrame(probs,columns=[f'prob_{i+1}' for i in range(top_n)])
 
         df_pred.index=valid_idxs
@@ -498,12 +498,12 @@ class EffNetClassificationInference:
                 # since rollup output (pred_1) is string labels, for not name_output, we need to convert them to indices
                 parent2idx = {v:i for i,v in enumerate(self.parent_info)}
                 label2idx = {v:i for i,v in enumerate(self.label_info)}
-                df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: parent2idx[x])
-                df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'].map(lambda x: label2idx[x])
+                df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: parent2idx[int(x)])
+                df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'].map(lambda x: label2idx[int(x)])
             elif not is_rollup and name_output:
                 # this is hitax with only 1 prediction pred_1 each row (which is an index)
-                df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: self.parent_info[x])
-                df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'].map(lambda x: self.label_info[x])
+                df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==1),'pred_1'].map(lambda x: self.parent_info[int(x)])
+                df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'] = df.loc[(~df['level'].isna()) & (df['level']==2),'pred_1'].map(lambda x: self.label_info[int(x)])
         # file  detection_bbox  pred_1  prob_1  level  
         return df
 
@@ -516,8 +516,8 @@ class EffNetClassificationInference:
         df_l1_pred = pd.DataFrame(pred_l1_idxs,columns=[f'parent_pred_{i+1}' for i in range(top_n)])
         df_l2_pred = pd.DataFrame(pred_l2_idxs,columns=[f'child_pred_{i+1}' for i in range(top_n)])
         if name_output and isinstance(self.parent_info,(list,tuple,np.ndarray)):
-            df_l1_pred = df_l1_pred.map(lambda x: self.parent_info[x])
-            df_l2_pred = df_l2_pred.map(lambda x: self.label_info[x])
+            df_l1_pred = df_l1_pred.map(lambda x: self.parent_info[int(x)])
+            df_l2_pred = df_l2_pred.map(lambda x: self.label_info[int(x)])
         df_l1_prob = pd.DataFrame(prob_l1,columns=[f'parent_prob_{i+1}' for i in range(top_n)])
         df_l2_prob = pd.DataFrame(prob_l2,columns=[f'child_prob_{i+1}' for i in range(top_n)])
         df_l1_pred.index=valid_idxs
