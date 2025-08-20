@@ -242,19 +242,21 @@ class DetectAndClassify:
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                  parent_info=None, # list of parent labels, or number of parent labels, needed for hierarchical classification (hitax)
                  child2parent=None, # dictionary of child to parent mapping (hitax)
-                 hitax_output=None, # None for merged output, 'parent' for parent only, 'child' for child only (hitax)
+                 hitax_output=None, # 'parent' for parent only, 'child' for child only, anything else for merged output (hitax)
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
                  hitax_threshold=0.75 # threshold for for hitax or rollup classification, default is 0.75
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
-        self.hitax_output = hitax_output
-        if hitax_output is not None:
-            if hitax_output not in ['parent','child']:
-                raise Exception('hitax_output must be either None, "parent" or "child"')
-            hitax_threshold = None
+        self.hitax_output=None
+        if isinstance(hitax_output, str):
+            if hitax_output.lower() in ['parent','child']:
+                self.hitax_output = hitax_output.lower()
+                hitax_threshold = None # to get both parent and pred, and then filtered later
+        if self.hitax_output is None: # anything else => default to merged output
+            hitax_threshold = hitax_threshold if hitax_threshold is not None else 0.75
+
         if finetuned_model is not None and label_info is not None:
-            self.label_info = label_info
             self.class_inference = EffNetClassificationInference(label_info=label_info,
                                                                  efficient_model=efficient_model,
                                                                  finetuned_model=finetuned_model,
