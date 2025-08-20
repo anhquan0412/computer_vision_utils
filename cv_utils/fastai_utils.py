@@ -414,7 +414,6 @@ class EffNetClassificationInference:
         self.child2parent = child2parent
         self.hitax_threshold = hitax_threshold
         self.parent2child = parent2child
-
         self.model = None
         if parent_info is not None:
             if child2parent is not None:
@@ -542,7 +541,8 @@ class EffNetClassificationInference:
                 prob_round=3, # number of decimal points to round the probability
                 do_image_check=False, # to check whether input images can be opened. Note: without this, invalid images will interrupt the prediction process
                 n_workers=1, # number of workers for parallel processing (image verification and dataloaders). None for all, up to 16
-                pin_memory=False # If True, the data loader will copy Tensors into CUDA pinned memory before returning them
+                pin_memory=False, # If True, the data loader will copy Tensors into CUDA pinned memory before returning them
+                use_fp16=True
                ):
         if (not isinstance(inputs, Iterable)) or isinstance(inputs,str):
             inputs = np.array([inputs])
@@ -571,7 +571,9 @@ class EffNetClassificationInference:
                                                        focal_gamma=1.0,
                                                        child_to_parent_mapping= self.child2parent_idx.to(device))
         learner = Learner(dls,self.model,
-                          loss_func = loss_func).to_fp16()
+                          loss_func = loss_func)
+        if use_fp16:
+            learner = learner.to_fp16()
 
         if tta_n>0 and not self.is_hitax:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
@@ -579,7 +581,8 @@ class EffNetClassificationInference:
             preds = learner.get_preds(dl = dls.valid)[0]
 
         # convert to fp32
-        preds = preds.float()
+        if use_fp16:
+            preds = preds.float()
         
         if not self.is_hitax:
             if not self.is_rollup:
