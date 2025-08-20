@@ -447,6 +447,7 @@ class EffNetClassificationInference:
             self.model = load_efficientnet_model(finetuned_model=finetuned_model,
                                                  efficient_model=efficient_model,
                                                  label_info=label_info)
+        self.model.eval()
 
     def validate_df(self,df):
         if 'file' in df.columns.tolist():
@@ -570,13 +571,16 @@ class EffNetClassificationInference:
                                                        focal_gamma=1.0,
                                                        child_to_parent_mapping= self.child2parent_idx.to(device))
         learner = Learner(dls,self.model,
-                          loss_func = loss_func)
+                          loss_func = loss_func).to_fp16()
 
         if tta_n>0 and not self.is_hitax:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
         else:
             preds = learner.get_preds(dl = dls.valid)[0]
 
+        # convert to fp32
+        preds = preds.float()
+        
         if not self.is_hitax:
             if not self.is_rollup:
                 # default
