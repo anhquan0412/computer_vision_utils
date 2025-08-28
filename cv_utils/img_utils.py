@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm 
 import logging
 import collections
-import datetime
+from datetime import timedelta, datetime, timezone
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -256,7 +256,7 @@ def sequence_assignment(
 
     Args:
         image_data: A list of dictionaries, where each dictionary represents an
-                    image and must contain 'file' and 'datetime' keys.
+                    image and should contain 'file' and 'datetime' keys.
         time_gap: The maximum time in seconds allowed between consecutive
                   images in the same sequence. Defaults to 3.
 
@@ -264,34 +264,33 @@ def sequence_assignment(
         A dictionary with a single key 'images', containing a list of
         dictionaries, each with 'file_name' and its assigned 'seq_id'.
         
-    Raises:
-        ValueError: If an image dictionary is missing 'file' or 'datetime' keys,
-                    or if the datetime string has an invalid format.
+    Note:
+        Image records that are missing the 'file' or 'datetime' key, or have
+        a malformed datetime string, will be silently ignored.
     """
     grouped_by_dir = collections.defaultdict(list)
     for image_info in image_data:
         try:
-            filepath = Path(image_info['file'])
+            filepath_str = image_info['file']
+            datetime_str = image_info['datetime']
+            filepath = Path(filepath_str)
             parent_dir = str(filepath.parent)
             
-            datetime_obj = datetime.datetime.strptime(
-                image_info['datetime'], '%Y:%m:%d %H:%M:%S'
+            datetime_obj = datetime.strptime(
+                datetime_str, '%Y:%m:%d %H:%M:%S'
             )
             
             grouped_by_dir[parent_dir].append({
-                'file': image_info['file'], 
+                'file': filepath_str, 
                 'datetime_obj': datetime_obj
             })
-        except KeyError as e:
-            raise KeyError(f"Input image dictionary is missing required key: {e}")
-        except ValueError:
-            raise ValueError(
-                f"Invalid datetime format for file {image_info.get('file')}. "
-                "Expected 'YYYY:MM:DD HH:MM:SS'."
-            )
+        except (KeyError, ValueError):
+            # If required keys are missing or datetime format is invalid,
+            # silently ignore this record and continue to the next.
+            continue
 
     final_results = []
-    time_delta_gap = datetime.timedelta(seconds=time_gap)
+    time_delta_gap = timedelta(seconds=time_gap)
 
     for parent_dir, images_in_group in grouped_by_dir.items():
         if not images_in_group:
