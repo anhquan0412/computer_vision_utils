@@ -308,7 +308,8 @@ class DetectAndClassify:
                 class_threshold=0.3, # the probability threshold to keep in the JSON file output,
                 n_workers=None, # number of workers to use for parallel processing
                 pin_memory=False, # If True, the data loader (classification only) will copy Tensors into CUDA pinned memory before returning them
-                convert_to_json=True # either to convert the predictions (dataframe) to JSON format
+                convert_to_json=True, # either to convert the predictions (dataframe) to JSON format
+                use_fp16=True # whether to use fp16 for classification model
                ):
         md_result = self.md_inference.predict(img_paths,
                                               run_batch=True,
@@ -337,7 +338,8 @@ class DetectAndClassify:
                                                 name_output=False,
                                                 prob_round=prob_round,
                                                 n_workers=n_workers,
-                                                pin_memory=pin_memory
+                                                pin_memory=pin_memory,
+                                                use_fp16=use_fp16
                                                 )
         # default
         # file	detection_bbox	pred_1	pred_2	pred_3	prob_1	prob_2	prob_3

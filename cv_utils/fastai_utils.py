@@ -406,10 +406,12 @@ class EffNetClassificationInference:
                 ):
         
         if torch.cuda.is_available() and disable_tf32:
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
             torch.backends.cuda.matmul.allow_tf32 = False
             torch.backends.cudnn.allow_tf32 = False
             print('TF32 is disabled on Ampere GPUs')
-            
+
         # check whether finetuned_model string ends with .pth or .pt
         finetuned_model = str(finetuned_model)
         if not (finetuned_model.endswith('.pth') or finetuned_model.endswith('.pt')):
@@ -564,7 +566,7 @@ class EffNetClassificationInference:
                 do_image_check=False, # to check whether input images can be opened. Note: without this, invalid images will interrupt the prediction process
                 n_workers=1, # number of workers for parallel processing (image verification and dataloaders). None for all, up to 16
                 pin_memory=False, # If True, the data loader will copy Tensors into CUDA pinned memory before returning them
-                use_fp16=True
+                use_fp16=True # whether to use fp16 for inference
                ):
         if (not isinstance(inputs, Iterable)) or isinstance(inputs,str):
             inputs = np.array([inputs])
