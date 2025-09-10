@@ -597,7 +597,8 @@ class EffNetClassificationInference:
         learner = Learner(dls,self.model,
                           loss_func = loss_func)
         if use_fp16:
-            learner = learner.to_fp16()
+            # learner = learner.to_fp16()
+            learner = learner.to_bf16()
 
         if tta_n>0 and not self.is_hitax:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
