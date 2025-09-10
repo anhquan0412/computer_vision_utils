@@ -244,7 +244,8 @@ class DetectAndClassify:
                  child2parent=None, # dictionary of child to parent mapping (hitax)
                  hitax_output=None, # 'parent' for parent only, 'child' for child only, anything else for merged output (hitax)
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
-                 hitax_threshold=0.75 # threshold for for hitax or rollup classification, default is 0.75
+                 hitax_threshold=0.75, # threshold for for hitax or rollup classification, default is 0.75
+                 disable_tf32=False # whether to disable tf32 on Ampere GPUs, to improve reproducibility
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
@@ -265,7 +266,8 @@ class DetectAndClassify:
                                                                  parent_info=parent_info,
                                                                  child2parent=child2parent,
                                                                  parent2child=parent2child,
-                                                                 hitax_threshold=hitax_threshold
+                                                                 hitax_threshold=hitax_threshold,
+                                                                 disable_tf32=disable_tf32
                                                                  )
 
     def hitax_cleanup(self,df):

@@ -401,9 +401,15 @@ class EffNetClassificationInference:
                  child2parent=None, # dictionary of child to parent mapping, needed for hierarchical classification
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
                  hitax_threshold=0.75, # threshold for for hitax or rollup classification, default is 0.75
+                 disable_tf32=False, # disable TF32 on Ampere GPUs
                  #  l1_morethan=None, # threshold, any parent label with probability more than this will be chosen, needed for hierarchical classification
                 ):
         
+        if torch.cuda.is_available() and disable_tf32:
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            print('TF32 is disabled on Ampere GPUs')
+            
         # check whether finetuned_model string ends with .pth or .pt
         finetuned_model = str(finetuned_model)
         if not (finetuned_model.endswith('.pth') or finetuned_model.endswith('.pt')):
