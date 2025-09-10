@@ -258,11 +258,12 @@ def hierarchical_param_splitter(m,parent_last=True):
 
 
 def load_hier_model(parent_count,children_count,lin_dropout_rate=0.3, last_hidden=256, use_simple_head=True,
-                    base_model='efficientnet-b3',trained_weight_path=None):
+                    base_model='efficientnet-b3',trained_weight_path=None,image_size=None):
                     
     from efficientnet_pytorch.utils import efficientnet, efficientnet_params,load_pretrained_weights
     w, d, s, p = efficientnet_params(base_model)
-
+    s = image_size if image_size is not None else s
+    
     blocks_args, global_params = efficientnet(include_top=True,
                                               width_coefficient=w, 
                                               depth_coefficient=d, 

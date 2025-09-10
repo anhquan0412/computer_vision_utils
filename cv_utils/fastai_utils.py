@@ -368,9 +368,11 @@ def prepare_inference_dataloader(inputs, # list of image paths or tuples of (ima
 
 def load_efficientnet_model(finetuned_model, 
                             efficient_model='efficientnet-b3', 
-                            label_info=None # list of output labels, or the number of labels
+                            label_info=None, # list of output labels, or the number of labels
+                            image_size=None
                             ):
     w, d, s, p = efficientnet_params(efficient_model)
+    s = image_size if image_size is not None else s
     blocks_args, global_params = efficientnet(include_top=True,
                                             width_coefficient=w, 
                                             depth_coefficient=d, 
@@ -415,6 +417,16 @@ class EffNetClassificationInference:
         self.hitax_threshold = hitax_threshold
         self.parent2child = parent2child
         self.model = None
+
+        image_size = None
+        if hasattr(self.item_tfms, 'size'):
+            # Handles Resize, Squish, Pad, Crop
+            size = self.item_tfms.size
+            if isinstance(size, int):
+                image_size = size
+            elif isinstance(size, (list, tuple)) and len(size) == 2:
+                image_size = size[0] # Assume square images for simplicity, take height
+
         if parent_info is not None:
             if child2parent is not None:
                 self.is_hitax = True
@@ -433,6 +445,7 @@ class EffNetClassificationInference:
                                             use_simple_head=True,
                                             base_model=efficient_model,
                                             trained_weight_path=finetuned_model,
+                                            image_size=image_size
                                             )
             elif parent2child is not None:
                 self.is_rollup = True
@@ -445,7 +458,8 @@ class EffNetClassificationInference:
         if self.model is None:
             self.model = load_efficientnet_model(finetuned_model=finetuned_model,
                                                  efficient_model=efficient_model,
-                                                 label_info=label_info)
+                                                 label_info=label_info,
+                                                 image_size=image_size)
         self.model.eval()
 
     def validate_df(self,df):
