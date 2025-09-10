@@ -380,7 +380,9 @@ def load_efficientnet_model(finetuned_model,
                                             image_size=s,
                                             num_classes=label_info if isinstance(label_info,int) else len(label_info),
                                             )
+    
     model = EfficientNet(blocks_args, global_params)
+    print('Image size for EfficientNet: ',model._global_params.image_size)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     state_dict = torch.load(finetuned_model, map_location=device)
     ret = model.load_state_dict(state_dict, strict=False)

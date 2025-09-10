@@ -214,8 +214,9 @@ class HierarchicalLinearLayer(nn.Module):
 
 class HierarchicalEfficientNet(EfficientNet):
     def __init__(self, parent_count,children_count,lin_dropout_rate=0.3, last_hidden=256, use_simple_head=True,blocks_args=None, global_params=None):
-        super(HierarchicalEfficientNet, self).__init__(blocks_args, global_params)
+        super().__init__(blocks_args, global_params)
 
+        print('Image size for HierarchicalEfficientNet: ',self._global_params.image_size)
         # Remove the existing final linear layer
         if self._global_params.include_top:
             del self._fc
