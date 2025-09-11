@@ -401,16 +401,8 @@ class EffNetClassificationInference:
                  child2parent=None, # dictionary of child to parent mapping, needed for hierarchical classification
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
                  hitax_threshold=0.75, # threshold for for hitax or rollup classification, default is 0.75
-                 disable_tf32=False, # disable TF32 on Ampere GPUs
                  #  l1_morethan=None, # threshold, any parent label with probability more than this will be chosen, needed for hierarchical classification
                 ):
-        
-        if torch.cuda.is_available() and disable_tf32:
-            torch.backends.cudnn.benchmark = False
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cuda.matmul.allow_tf32 = False
-            torch.backends.cudnn.allow_tf32 = False
-            print('TF32 is disabled on Ampere GPUs')
 
         # check whether finetuned_model string ends with .pth or .pt
         finetuned_model = str(finetuned_model)
@@ -470,6 +462,7 @@ class EffNetClassificationInference:
                                                  efficient_model=efficient_model,
                                                  label_info=label_info,
                                                  image_size=image_size)
+        self.model.eval()
 
     def validate_df(self,df):
         if 'file' in df.columns.tolist():
@@ -597,9 +590,6 @@ class EffNetClassificationInference:
                           loss_func = loss_func)
         if use_fp16:
             learner = learner.to_fp16()
-        else:
-            learner.model = learner.model.float()
-        learner.model.eval()
 
         if tta_n>0 and not self.is_hitax:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
