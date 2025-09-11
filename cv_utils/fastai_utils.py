@@ -10,8 +10,7 @@ from .img_utils import crop_image, download_img
 from .common_utils import check_and_fix_http_path
 from .hierarchical_model import load_hier_model, HierarchicalClassificationLoss,get_precision_recall_f1_metrics_group
 from .hierarchical_rollup import precompute_rollup_maps_dynamic, rollup_predictions_dynamic
-from efficientnet_pytorch import EfficientNet
-from efficientnet_pytorch.utils import efficientnet, efficientnet_params
+import timm
 from multiprocessing import cpu_count
 
 def bold_print(txt):
@@ -134,7 +133,9 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     if not label_names:
         label_names = dls.vocab.items.items
 
-    model = EfficientNet.from_pretrained(config['EFFICIENT_MODEL'],num_classes=len(label_names))
+    # Convert model name from efficientnet-b3 to efficientnet_b3 format for timm
+    timm_model_name = config['EFFICIENT_MODEL'].replace('-', '_')
+    model = timm.create_model(timm_model_name, pretrained=True, num_classes=len(label_names))
     
     monitor_metric = config['MONITOR_METRIC'] if 'MONITOR_METRIC' in config else 'f1_score' #'valid_loss'
     save_every_epoch = config['SAVE_EVERY_EPOCH'] if 'SAVE_EVERY_EPOCH' in config else False
@@ -251,7 +252,9 @@ def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None
                                    batch_tfms=aug_tfms,
                                    n_workers=n_workers
                                   )
-    hier_model = load_hier_model(len(parent_labels),len(children_labels),use_simple_head=True)
+    # Import and use the new timm-compatible hierarchical model loader
+    from .hierarchical_model import load_hier_model_timm
+    hier_model = load_hier_model_timm(len(parent_labels),len(children_labels),use_simple_head=True)
     save_directory = Path(config['SAVE_DIRECTORY']) if 'SAVE_DIRECTORY' in config else Path('.')/'hier_model'
     save_directory.mkdir(exist_ok=True,parents=True)
     save_name = config['SAVE_NAME'] if 'SAVE_NAME' in config else 'hier_model'
@@ -371,23 +374,23 @@ def load_efficientnet_model(finetuned_model,
                             label_info=None, # list of output labels, or the number of labels
                             image_size=None
                             ):
-    w, d, s, p = efficientnet_params(efficient_model)
-    s = image_size if image_size is not None else s
-    blocks_args, global_params = efficientnet(include_top=True,
-                                            width_coefficient=w, 
-                                            depth_coefficient=d, 
-                                            dropout_rate=p, # 0.3
-                                            image_size=s,
-                                            num_classes=label_info if isinstance(label_info,int) else len(label_info),
-                                            )
+    # Convert model name format for timm
+    timm_model_name = efficient_model.replace('-', '_')
+    num_classes = label_info if isinstance(label_info, int) else len(label_info)
     
-    model = EfficientNet(blocks_args, global_params)
-    print('Image size for EfficientNet: ',model._global_params.image_size)
+    # Create model with timm (without pretrained weights)
+    model = timm.create_model(timm_model_name, pretrained=False, num_classes=num_classes)
+    
+    # Load fine-tuned weights
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     state_dict = torch.load(finetuned_model, map_location=device)
     ret = model.load_state_dict(state_dict, strict=False)
     if len(ret.missing_keys):
         print(f'Missing weights: {ret.missing_keys}')
+    if len(ret.unexpected_keys):
+        print(f'Unexpected weights: {ret.unexpected_keys}')
+    
+    print(f'Loaded timm EfficientNet model: {timm_model_name} with {num_classes} classes')
     return model
 
 class EffNetClassificationInference:
@@ -440,15 +443,17 @@ class EffNetClassificationInference:
                     f"Label (children) names and child2parent mapping lengths do not match: {label_count} != {len(child2parent)}"
 
                 self.child2parent_idx = torch.tensor([parent_info.index(child2parent[ch]) for ch in label_info], dtype=torch.int32)
-                self.model = load_hier_model(parent_count = parent_count,
-                                            children_count = label_count,
-                                            lin_dropout_rate=0.3,
-                                            last_hidden=256,
-                                            use_simple_head=True,
-                                            base_model=efficient_model,
-                                            trained_weight_path=finetuned_model,
-                                            image_size=image_size
-                                            )
+                # Import the new timm-compatible hierarchical model loader
+                from .hierarchical_model import load_hier_model_timm
+                self.model = load_hier_model_timm(parent_count = parent_count,
+                                                children_count = label_count,
+                                                lin_dropout_rate=0.3,
+                                                last_hidden=256,
+                                                use_simple_head=True,
+                                                base_model=efficient_model,
+                                                trained_weight_path=finetuned_model,
+                                                image_size=image_size
+                                                )
             elif parent2child is not None:
                 self.is_rollup = True
                 if isinstance(parent_info,int) or isinstance(label_info,int):

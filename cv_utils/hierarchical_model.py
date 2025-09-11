@@ -1,6 +1,9 @@
 from fastai.vision.all import *
+# OLD LIBRARY - Kept for backward compatibility with existing hierarchical models
 from efficientnet_pytorch import EfficientNet
 from efficientnet_pytorch.utils import round_filters, MemoryEfficientSwish
+# NEW LIBRARY - Use this for new models
+import timm
 from sklearn.metrics import precision_recall_fscore_support
 
 
@@ -260,6 +263,10 @@ def hierarchical_param_splitter(m,parent_last=True):
 
 def load_hier_model(parent_count,children_count,lin_dropout_rate=0.3, last_hidden=256, use_simple_head=True,
                     base_model='efficientnet-b3',trained_weight_path=None,image_size=None):
+    """
+    DEPRECATED: Use load_hier_model_timm() for new models.
+    This function is kept for backward compatibility with existing trained models.
+    """
                     
     from efficientnet_pytorch.utils import efficientnet, efficientnet_params,load_pretrained_weights
     w, d, s, p = efficientnet_params(base_model)
@@ -291,6 +298,74 @@ def load_hier_model(parent_count,children_count,lin_dropout_rate=0.3, last_hidde
         ret = hier_model.load_state_dict(state_dict, strict=False)
         if len(ret.missing_keys):
             print(f'Missing keys: {ret.missing_keys}')
+    
+    return hier_model
+
+
+# NEW TIMM-COMPATIBLE HIERARCHICAL MODEL
+class HierarchicalTimmEfficientNet(nn.Module):
+    """
+    Hierarchical model using timm EfficientNet as backbone
+    """
+    def __init__(self, parent_count, children_count, lin_dropout_rate=0.3, 
+                 last_hidden=256, use_simple_head=True, base_model='efficientnet_b3'):
+        super().__init__()
+        
+        # Create timm model as feature extractor (without classifier head)
+        self.backbone = timm.create_model(base_model, pretrained=True, num_classes=0)  # num_classes=0 removes classifier
+        
+        # Get feature dimension from the model (much cleaner than forward pass)
+        # This gives the number of features after global average pooling
+        out_channels = self.backbone.num_features
+        
+        # Add hierarchical classifier head
+        if use_simple_head:
+            self._hierarchical_fc = HierarchicalSimpleLinearLayer(
+                out_channels, parent_count, children_count, lin_dropout_rate, last_hidden)
+        else:
+            self._hierarchical_fc = HierarchicalLinearLayer(
+                out_channels, parent_count, children_count, lin_dropout_rate, last_hidden)
+        
+        print(f'Created HierarchicalTimmEfficientNet with {base_model} backbone')
+        print(f'Feature dimension: {out_channels}, Parent classes: {parent_count}, Child classes: {children_count}')
+    
+    def forward(self, x):
+        # Extract features using timm backbone
+        features = self.backbone(x)  # Output: [batch_size, feature_dim]
+        
+        # Apply hierarchical classifier
+        logits = self._hierarchical_fc(features)
+        return logits
+
+
+def load_hier_model_timm(parent_count, children_count, lin_dropout_rate=0.3, 
+                        last_hidden=256, use_simple_head=True, base_model='efficientnet-b3',
+                        trained_weight_path=None, image_size=None):
+    """
+    Load hierarchical model using timm backend
+    """
+    # Convert model name format for timm
+    timm_model_name = base_model.replace('-', '_')
+    
+    # Create hierarchical model
+    hier_model = HierarchicalTimmEfficientNet(
+        parent_count=parent_count,
+        children_count=children_count,
+        lin_dropout_rate=lin_dropout_rate,
+        last_hidden=last_hidden,
+        use_simple_head=use_simple_head,
+        base_model=timm_model_name
+    )
+    
+    # Load trained weights if provided
+    if trained_weight_path is not None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        state_dict = torch.load(trained_weight_path, map_location=device)
+        ret = hier_model.load_state_dict(state_dict, strict=False)
+        if len(ret.missing_keys):
+            print(f'Missing keys: {ret.missing_keys}')
+        if len(ret.unexpected_keys):
+            print(f'Unexpected keys: {ret.unexpected_keys}')
     
     return hier_model
     
