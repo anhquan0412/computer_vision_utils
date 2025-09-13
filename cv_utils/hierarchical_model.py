@@ -1,11 +1,101 @@
 from fastai.vision.all import *
-# OLD LIBRARY - Kept for backward compatibility with existing hierarchical models
-from efficientnet_pytorch import EfficientNet
-from efficientnet_pytorch.utils import round_filters, MemoryEfficientSwish
-# NEW LIBRARY - Use this for new models
 import timm
 from sklearn.metrics import precision_recall_fscore_support
 
+
+class MemoryEfficientSwish(torch.autograd.Function):
+    """
+    Memory efficient implementation of Swish activation function.
+    Swish(x) = x * sigmoid(x)
+    This is equivalent to SiLU in modern PyTorch.
+    """
+    @staticmethod
+    def forward(ctx, x):
+        result = x * torch.sigmoid(x)
+        ctx.save_for_backward(x)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x = ctx.saved_tensors[0]
+        sigmoid_x = torch.sigmoid(x)
+        return grad_output * (sigmoid_x * (1 + x * (1 - sigmoid_x)))
+
+
+class MemoryEfficientSwishModule(nn.Module):
+    """Module wrapper for MemoryEfficientSwish"""
+    def forward(self, x):
+        return MemoryEfficientSwish.apply(x)
+
+
+def round_filters(filters, global_params=None):
+    """
+    Calculate and round number of filters based on width multiplier.
+    
+    Args:
+        filters (int): Base number of filters
+        global_params: Width multiplier (float) or parameter object
+    
+    Returns:
+        int: Rounded number of filters
+    """
+    # Handle different input types for backward compatibility
+    if global_params is None:
+        return filters
+    
+    # If global_params is actually a float (width_multiplier)
+    if isinstance(global_params, (int, float)):
+        width_multiplier = global_params
+        depth_divisor = 8
+        min_depth = None
+    else:
+        # If it's a global_params object (backward compatibility)
+        width_multiplier = getattr(global_params, 'width_coefficient', 1.0)
+        depth_divisor = getattr(global_params, 'depth_divisor', 8)
+        min_depth = getattr(global_params, 'min_depth', None)
+    
+    if not width_multiplier:
+        return filters
+    
+    filters *= width_multiplier
+    min_depth = min_depth or depth_divisor
+    
+    # Round to nearest multiple of depth_divisor
+    new_filters = max(min_depth, int(filters + depth_divisor / 2) // depth_divisor * depth_divisor)
+    
+    # Prevent rounding by more than 10%
+    if new_filters < 0.9 * filters:
+        new_filters += depth_divisor
+        
+    return int(new_filters)
+
+
+def get_activation_layer(name='swish'):
+    """
+    Get activation layer by name. Returns modern PyTorch implementations.
+    
+    Args:
+        name (str): Activation name ('swish', 'silu', 'relu', 'gelu', etc.)
+    
+    Returns:
+        nn.Module: Activation layer
+    """
+    name = name.lower()
+    
+    if name in ['swish', 'silu']:
+        # Use modern PyTorch SiLU (equivalent to Swish)
+        return nn.SiLU()
+    elif name == 'memory_efficient_swish':
+        # Use our custom memory efficient implementation
+        return MemoryEfficientSwishModule()
+    elif name == 'relu':
+        return nn.ReLU()
+    elif name == 'gelu':
+        return nn.GELU()
+    elif name == 'mish':
+        return nn.Mish()
+    else:
+        raise ValueError(f"Unknown activation: {name}")
 
 class HierarchicalClassificationLoss(Module):
     def __init__(self,
@@ -145,7 +235,7 @@ class HierarchicalSimpleLinearLayer(nn.Module):
         self.l2_block = nn.Sequential(
             nn.Linear(hidden_size + parent_count, last_hidden),
             nn.BatchNorm1d(last_hidden),
-            MemoryEfficientSwish(),  # Maintain consistency with EfficientNet
+            nn.SiLU(),  # Modern PyTorch Swish equivalent (more efficient than custom implementation)
             nn.Dropout(dropout_rate),  # Slightly higher dropout for regularization
             nn.Linear(last_hidden, children_count)
         )
@@ -183,11 +273,11 @@ class HierarchicalLinearLayer(nn.Module):
         self.l2_block = nn.Sequential(
             nn.Linear(hidden_size, last_hidden),  # Process features independently first
             nn.BatchNorm1d(last_hidden),
-            MemoryEfficientSwish(),
+            nn.SiLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(last_hidden + parent_count, last_hidden),  # Then combine with parent info
             nn.BatchNorm1d(last_hidden),
-            MemoryEfficientSwish(),
+            nn.SiLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(last_hidden, children_count)
         )
@@ -214,92 +304,6 @@ class HierarchicalLinearLayer(nn.Module):
         child_logits = self.l2_block[4:](l2_input)
         
         return torch.cat([parent_logits, child_logits], dim=1)
-
-class HierarchicalEfficientNet(EfficientNet):
-    def __init__(self, parent_count,children_count,lin_dropout_rate=0.3, last_hidden=256, use_simple_head=True,blocks_args=None, global_params=None):
-        super().__init__(blocks_args, global_params)
-
-        print('Image size for HierarchicalEfficientNet: ',self._global_params.image_size)
-        # Remove the existing final linear layer
-        if self._global_params.include_top:
-            del self._fc
-        out_channels = round_filters(1280, self._global_params)
-        if use_simple_head:
-            self._hierarchical_fc = HierarchicalSimpleLinearLayer(out_channels, parent_count,children_count,lin_dropout_rate,last_hidden)
-        else:
-            self._hierarchical_fc = HierarchicalLinearLayer(out_channels, parent_count,children_count,lin_dropout_rate,last_hidden)
-
-    def forward(self, inputs):
-        """EfficientNet's forward function with custom hierarchical final layer.
-           Calls extract_features to extract features, applies custom hierarchical layer, and returns logits.
-
-        Args:
-            inputs (tensor): Input tensor.
-
-        Returns:
-            Output of this model after processing.
-        """
-        # Convolution layers
-        x = self.extract_features(inputs)
-        # Pooling and custom hierarchical layer
-        x = self._avg_pooling(x)
-        if self._global_params.include_top:
-            x = x.flatten(start_dim=1)
-            x = self._dropout(x)
-            x = self._hierarchical_fc(x)
-        return x
-    
-def hierarchical_param_splitter(m,parent_last=True):
-    # rough draft of differential learning rate for EfficientNet
-    # not really affective for wildlife dataset
-    len_hierar_fc = len(list(m._hierarchical_fc.parameters()))
-    group1 = [p for p in list(m.parameters())[:-len_hierar_fc] if p.requires_grad]
-    parent_group = [p for p in m._hierarchical_fc.parent_fc.parameters() if p.requires_grad]
-    children_group = [p for p in m._hierarchical_fc.l2_block.parameters() if p.requires_grad]
-    if parent_last:
-        return [group1,children_group,parent_group]
-    return [group1,parent_group,children_group]
-
-
-def load_hier_model(parent_count,children_count,lin_dropout_rate=0.3, last_hidden=256, use_simple_head=True,
-                    base_model='efficientnet-b3',trained_weight_path=None,image_size=None):
-    """
-    DEPRECATED: Use load_hier_model_timm() for new models.
-    This function is kept for backward compatibility with existing trained models.
-    """
-                    
-    from efficientnet_pytorch.utils import efficientnet, efficientnet_params,load_pretrained_weights
-    w, d, s, p = efficientnet_params(base_model)
-    s = image_size if image_size is not None else s
-    
-    blocks_args, global_params = efficientnet(include_top=True,
-                                              width_coefficient=w, 
-                                              depth_coefficient=d, 
-                                              dropout_rate=p, # 0.3
-                                              image_size=s,
-                                              num_classes=parent_count+children_count,
-                                             )
-
-
-    hier_model = HierarchicalEfficientNet(parent_count,children_count,
-                                                lin_dropout_rate, 
-                                                last_hidden, 
-                                                use_simple_head,
-                                                blocks_args,global_params)
-    
-    if trained_weight_path is None:
-        try:
-            load_pretrained_weights(hier_model, model_name = base_model, weights_path=None,
-                                        load_fc=False, advprop=False)
-        except:
-            pass
-    else:
-        state_dict = torch.load(trained_weight_path)
-        ret = hier_model.load_state_dict(state_dict, strict=False)
-        if len(ret.missing_keys):
-            print(f'Missing keys: {ret.missing_keys}')
-    
-    return hier_model
 
 
 # NEW TIMM-COMPATIBLE HIERARCHICAL MODEL

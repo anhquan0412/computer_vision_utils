@@ -8,7 +8,7 @@ from azure.storage.blob import ContainerClient
 import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image, download_img
 from .common_utils import check_and_fix_http_path
-from .hierarchical_model import load_hier_model, HierarchicalClassificationLoss,get_precision_recall_f1_metrics_group
+from .hierarchical_model import HierarchicalClassificationLoss,get_precision_recall_f1_metrics_group
 from .hierarchical_rollup import precompute_rollup_maps_dynamic, rollup_predictions_dynamic
 import timm
 from multiprocessing import cpu_count

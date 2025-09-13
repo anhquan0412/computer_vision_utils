@@ -7,7 +7,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='cv_utils',
-    version='0.3.1',
+    version='0.4.0',
     packages=find_packages(),
     install_requires=[
         'megadetector', # 5.0.25
@@ -16,7 +16,7 @@ setup(
         'Pillow',
         'matplotlib',
         'wandb',
-        'efficientnet-pytorch',
+        'timm',
         'azure-storage-blob'
     ],
     entry_points={
