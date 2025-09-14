@@ -1,6 +1,8 @@
 from sklearn.metrics import precision_recall_fscore_support
 from fastai.vision.all import *
 from fastai.callback.wandb import *
+from fastai.callback.training import GradientClip
+from fastai.losses import LabelSmoothingCrossEntropy
 from collections.abc import Iterable
 import ast
 import wandb
@@ -145,6 +147,12 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     pct_start = config['PCT_START'] if 'PCT_START' in config else 0.25
     log_metrics = config['LOG_LABEL_METRICS'] if 'LOG_LABEL_METRICS' in config else []
     assert set(log_metrics) - set(['precision','recall','f1'])==set()
+    
+    # Enhanced training parameters for Vision Transformers
+    label_smoothing = config['LABEL_SMOOTHING'] if 'LABEL_SMOOTHING' in config else None
+    gradient_clip = config['GRADIENT_CLIP'] if 'GRADIENT_CLIP' in config else None
+    weight_decay = config['WEIGHT_DECAY'] if 'WEIGHT_DECAY' in config else None
+    
     cbs=[
             SaveModelCallback(monitor=monitor_metric,
                               every_epoch=save_every_epoch,
@@ -153,6 +161,11 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
                               ),
             CSVLogger(fname=(save_directory/f"{save_name}_training_log.csv"), append=True)
         ]
+    
+    # Add gradient clipping callback if specified
+    if gradient_clip is not None and gradient_clip > 0:
+        cbs.append(GradientClip(max_norm=gradient_clip))
+        print(f"Using gradient clipping with max_norm={gradient_clip}")
     
     mixup_alpha = config['MIXUP_ALPHA'] if ('MIXUP_ALPHA' in config and config['MIXUP_ALPHA']>0) else None
     if mixup_alpha is not None:
@@ -167,28 +180,39 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     for lm in log_metrics:
         metric_lists += get_precision_recall_f1_metrics(label_names,mtype=lm)
 
+    # Set up loss function with optional label smoothing
+    loss_func = None
+    if label_smoothing is not None and label_smoothing > 0:
+        loss_func = LabelSmoothingCrossEntropy(eps=label_smoothing)
+        print(f"Using label smoothing with eps={label_smoothing}")
+
     learn = Learner(dls, model, 
                     metrics=[F1Score(average='macro')]+metric_lists,
                     cbs=cbs,
+                    loss_func=loss_func,
                    ).to_fp16()
     
+    # Print weight decay information
+    if weight_decay is not None and weight_decay > 0:
+        print(f"Using weight decay: {weight_decay}")
+
     bold_print('training model')
     epoch = config['EPOCH']
     freeze_epoch = config['FREEZE_EPOCH'] if 'FREEZE_EPOCH' in config else 1
     if len(metric_lists)<8:
         if 'FREEZE_EPOCH' in config and config['FREEZE_EPOCH']>0:
-            learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
+            learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'],wd=weight_decay)
         else:
             learn.unfreeze()
-            learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start)
+            learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
         
     else:
         with learn.no_bar(), learn.no_logging():
             if 'FREEZE_EPOCH' in config and config['FREEZE_EPOCH']>0:
-                learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'])
+                learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'],wd=weight_decay)
             else:
                 learn.unfreeze()
-                learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start)
+                learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
 
     _ax = learn.recorder.plot_loss(show_epochs=True)
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
