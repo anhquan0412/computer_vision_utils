@@ -10,10 +10,9 @@ def clas_report_compact(y_true,y_pred,label_names=None):
                                target_names=label_names, 
                                output_dict=True)
     report_df = pd.DataFrame(report).T
-    report_df_short = report_df[report_df.support>0]
-    report_df_short = report_df_short.iloc[:-3].copy()
+    report_df_short = report_df.iloc[:-3].copy()
     report_df_short.support = report_df_short.support.astype(int)
-    return report_df_short
+    return report_df.tail(3),report_df_short
 
 def focus_precision_recall_from_cm(report_df_short,confusion_matrix,labels,metric='precision',n_show=5,cut_off=0.1,ascending=True):
     """
@@ -49,7 +48,7 @@ def focus_precision_recall_from_cm(report_df_short,confusion_matrix,labels,metri
         for k,v in fp_rate.items():
             print(f"  {k}: {v[0]} ({v[1]*100:.3f}% of all False {'Positives' if metric=='precision' else 'Negatives'} of {_row.index[i].strip()} )")
 
-def plot_classification_report(report_df_short,rotation=85,figsize=(10,8),fontsize=8,metrics=['f1','precision','recall']):
+def plot_classification_report(report_df_short,rotation=85,figsize=(10,8),fontsize=8,metrics=['f1','precision','recall'],fname=None):
     species = report_df_short.index.values
     support = report_df_short['support'].values
     f1_score = report_df_short['f1-score'].values
@@ -95,7 +94,15 @@ def plot_classification_report(report_df_short,rotation=85,figsize=(10,8),fontsi
     ax2.grid(True, which='major', axis='y', linestyle='--', linewidth=0.5)
     ax2.minorticks_on()
     ax2.grid(True, which='minor', axis='y', linestyle=':', linewidth=0.5)
-    plt.show()
+
+    if fname is not None:
+        plt.savefig(fname,bbox_inches='tight',format='png')
+        plt.close(fig)
+    else:
+        plt.show()
+
+    
+    
 
 def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12),save_path=None,dpi=300):
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=label_names)
