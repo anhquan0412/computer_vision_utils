@@ -15,7 +15,7 @@ from megadetector.utils.ct_utils import truncate_float,truncate_float_array
 from .viz_utils import visualize_images
 from .img_utils import download_img
 from .common_utils import value_counts_both, dataframe_apply_parallel
-from .fastai_utils import EffNetClassificationInference
+from .fastai_utils import ClassificationInference
 
 
 
@@ -235,10 +235,10 @@ class MegaDetectorInference:
 class DetectAndClassify:
     def __init__(self, 
                  md_path, # absolute path to megadetector weight
-                 finetuned_model=None, # absolute path to efficient model that has been finetuned
+                 finetuned_model=None, # absolute path to classification model that has been finetuned
                  label_info=None, # list of output labels, or number of labels
                  item_tfms=None, # list of item transformations
-                 efficient_model='efficientnet-b3', # name of pretrained efficient model
+                 classification_model='tf_efficientnet_b5.ns_jft_in1k', # name of pretrained classification model
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                  parent_info=None, # list of parent labels, or number of parent labels, needed for hierarchical classification (hitax)
                  child2parent=None, # dictionary of child to parent mapping (hitax)
@@ -257,8 +257,8 @@ class DetectAndClassify:
             hitax_threshold = hitax_threshold if hitax_threshold is not None else 0.75
 
         if finetuned_model is not None and label_info is not None:
-            self.class_inference = EffNetClassificationInference(label_info=label_info,
-                                                                 efficient_model=efficient_model,
+            self.class_inference = ClassificationInference(label_info=label_info,
+                                                                 classification_model=classification_model,
                                                                  finetuned_model=finetuned_model,
                                                                  item_tfms=item_tfms,
                                                                  aug_tfms=aug_tfms,

@@ -306,13 +306,12 @@ class HierarchicalLinearLayer(nn.Module):
         return torch.cat([parent_logits, child_logits], dim=1)
 
 
-# NEW TIMM-COMPATIBLE HIERARCHICAL MODEL
 class HierarchicalTimmEfficientNet(nn.Module):
     """
     Hierarchical model using timm EfficientNet as backbone
     """
     def __init__(self, parent_count, children_count, lin_dropout_rate=0.3, 
-                 last_hidden=256, use_simple_head=True, base_model='efficientnet_b3'):
+                 last_hidden=256, use_simple_head=True, base_model='tf_efficientnet_b5.ns_jft_in1k'):
         super().__init__()
         
         # Create timm model as feature extractor (without classifier head)
@@ -343,7 +342,7 @@ class HierarchicalTimmEfficientNet(nn.Module):
 
 
 def load_hier_model_timm(parent_count, children_count, lin_dropout_rate=0.3, 
-                        last_hidden=256, use_simple_head=True, base_model='efficientnet-b3',
+                        last_hidden=256, use_simple_head=True, base_model='tf_efficientnet_b5.ns_jft_in1k',
                         trained_weight_path=None, image_size=None):
     """
     Load hierarchical model using timm backend

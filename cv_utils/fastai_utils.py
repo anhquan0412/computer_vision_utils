@@ -92,7 +92,7 @@ def PILImageFactory(container_client=None):
     PILMDImage.input_container_client = container_client
     return PILMDImage
 
-def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
+def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
@@ -135,8 +135,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     if not label_names:
         label_names = dls.vocab.items.items
 
-    # Convert model name from efficientnet-b3 to efficientnet_b3 format for timm
-    timm_model_name = config['EFFICIENT_MODEL'].replace('-', '_')
+    timm_model_name = config['CLASSIFICATION_MODEL'].replace('-', '_')
     model = timm.create_model(timm_model_name, pretrained=True, num_classes=len(label_names))
     
     monitor_metric = config['MONITOR_METRIC'] if 'MONITOR_METRIC' in config else 'f1_score' #'valid_loss'
@@ -228,7 +227,7 @@ def fastai_cv_train_efficientnet(config,df,aug_tfms=None,label_names=None,save_v
     return learn
 
 
-def fastai_cv_train_hitax_efficientnet(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None):
+def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None):
     # df should have these columns
     # - file_and_bbox: a tuple/list of (file_path, bbox), or a list of file_path. file_path is relative path
     # - parent_label: the parent label (string)
@@ -393,13 +392,13 @@ def prepare_inference_dataloader(inputs, # list of image paths or tuples of (ima
                                   shuffle=False)
     return dls,valid_idxs
 
-def load_efficientnet_model(finetuned_model, 
-                            efficient_model='efficientnet-b3', 
+def load_classification_model(finetuned_model, 
+                            classification_model='tf_efficientnet_b5.ns_jft_in1k', 
                             label_info=None, # list of output labels, or the number of labels
                             image_size=None
                             ):
     # Convert model name format for timm
-    timm_model_name = efficient_model.replace('-', '_')
+    timm_model_name = classification_model.replace('-', '_')
     num_classes = label_info if isinstance(label_info, int) else len(label_info)
     
     # Create model with timm (without pretrained weights)
@@ -414,14 +413,14 @@ def load_efficientnet_model(finetuned_model,
     if len(ret.unexpected_keys):
         print(f'Unexpected weights: {ret.unexpected_keys}')
     
-    print(f'Loaded timm EfficientNet model: {timm_model_name} with {num_classes} classes')
+    print(f'Loaded timm classification model: {timm_model_name} with {num_classes} classes')
     return model
 
-class EffNetClassificationInference:
+class ClassificationInference:
     def __init__(self,
                  label_info, # list of output labels, or the number of labels
-                 finetuned_model, # absolute path to efficient model that has been finetuned
-                 efficient_model='efficientnet-b3', # name of pretrained efficient model
+                 finetuned_model, # absolute path to classification model that has been finetuned
+                 classification_model='tf_efficientnet_b5.ns_jft_in1k', # name of pretrained classification model
                  item_tfms=Resize(750), # list of item transformations
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                  parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification/rollup classification
@@ -474,7 +473,7 @@ class EffNetClassificationInference:
                                                 lin_dropout_rate=0.3,
                                                 last_hidden=256,
                                                 use_simple_head=True,
-                                                base_model=efficient_model,
+                                                base_model=classification_model,
                                                 trained_weight_path=finetuned_model,
                                                 image_size=image_size
                                                 )
@@ -487,8 +486,8 @@ class EffNetClassificationInference:
                 self.agg_maps_2L = precompute_rollup_maps_dynamic([parent_info,label_info], [parent2child])
 
         if self.model is None:
-            self.model = load_efficientnet_model(finetuned_model=finetuned_model,
-                                                 efficient_model=efficient_model,
+            self.model = load_classification_model(finetuned_model=finetuned_model,
+                                                 classification_model=classification_model,
                                                  label_info=label_info,
                                                  image_size=image_size)
         self.model.eval()
