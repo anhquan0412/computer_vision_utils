@@ -47,12 +47,16 @@ def get_precision_recall_f1_metrics(label_names,mtype="f1"):
         metrics.append(AccumMetric(precision_recall_f1_func(v,i,mtype),dim_argmax=-1,to_np=True,invert_arg=True))
     return metrics
 
-def fastai_predict_val(learner,label_names,path_prefix,df_val=None):
+def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     def _get_label_for_plot(x_prob):
         x_sort = x_prob.iloc[x_prob.argsort()[::-1][:2]] # get the top 2 probabilities and predictions. Note: hardcode
         return np.array([x_sort,x_sort.index]).flatten()
     path_prefix = str(path_prefix)
-    val_probs,val_true,val_pred = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
+    if tta_n>0:
+        val_probs,val_true = learner.tta(n=tta_n)
+        val_pred = val_probs[0].max(axis=1)[1]
+    else:
+        val_probs,val_true,val_pred = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
     val_pred_str = list(map(lambda x: label_names[x],val_pred))
     val_true_str = list(map(lambda x: label_names[x],val_true))
     df_pred = pd.DataFrame()
@@ -86,8 +90,13 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None):
         df_show = df_prob
 
     # add a column label_show, which is (prob1, prob2) if pred2==true, else (prob1, pred2: prob2)
-    df_show['label_show'] = df_show[['y_true','y_prob1','y_prob2','y_pred1','y_pred2']].apply(lambda x: (round(x['y_prob1'],2),round(x['y_prob2'],2)) if x['y_pred2']==x['y_true'] else \
-                                                                                                (round(x['y_prob1'],2),f"{x['y_pred2'].split('|')[1].strip()}: {round(x['y_prob2'],2)}"),
+    def _format_label_show(x):
+        _tmp = x['y_pred1'].split('|')
+        pred1_label = _tmp[1].strip() if len(_tmp) > 1 else _tmp[0].strip()
+        _tmp = x['y_pred2'].split('|')
+        pred2_label = _tmp[1].strip() if len(_tmp) > 1 else _tmp[0].strip()
+        return f"{pred1_label}: {round(x['y_prob1'],2)}\n{pred2_label}: {round(x['y_prob2'],2)}"
+    df_show['label_show'] = df_show[['y_true','y_prob1','y_prob2','y_pred1','y_pred2']].apply(lambda x: _format_label_show(x),
                                                                                                 axis=1)
 
     report_df_compact.to_csv(path_prefix + '_short_report.csv')
@@ -127,7 +136,7 @@ def PILImageFactory(container_client=None):
     PILMDImage.input_container_client = container_client
     return PILMDImage
 
-def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=False):
+def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=False,tta_n=0):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
@@ -255,7 +264,7 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
         bold_print('predicting validation set')
         df_val = df[df['is_val']==True].copy()
         path_prefix = str(save_directory/save_name)
-        fastai_predict_val(learn,label_names,df_val=df_val,path_prefix=path_prefix)
+        fastai_predict_val(learn,label_names,df_val=df_val,path_prefix=path_prefix,tta_n=tta_n)
 
     if use_wandb:
         wandb.finish();
