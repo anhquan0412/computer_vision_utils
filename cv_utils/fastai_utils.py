@@ -92,8 +92,8 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None):
 
     report_df_compact.to_csv(path_prefix + '_short_report.csv')
     report_df.to_csv(path_prefix + '_full_report.csv')
-    plot_classification_report(report_df,figsize=(30,16),fname=path_prefix + '_full_report.png')
-    plot_classification_report(report_df[report_df['f1-score']<=0.9],figsize=(16,10),fname=path_prefix + '_low_f1_report.png')
+    plot_classification_report(report_df,figsize=(30,16),fontsize=10,fname=path_prefix + '_full_report.png')
+    plot_classification_report(report_df[report_df['f1-score']<=0.9],figsize=(16,10),fontsize=10,fname=path_prefix + '_low_f1_report.png')
 
     df_pred.to_csv(path_prefix + '_val_pred.csv',index=False)
     df_show.to_csv(path_prefix + '_val_pred_for_show.csv',index=False)
