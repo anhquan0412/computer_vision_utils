@@ -188,7 +188,7 @@ def get_precision_recall_f1_metrics_group(parent_labels):
 def precision_recall_f1_func_dhc(label_name,label_idx,parent_count,is_parent,mtype="f1"):
     def _metric(y_true,y_pred):
         # y_pred: (bs,l1+l2), raw logits
-        # y_true: (bs,2)
+        # y_true: (bs,l1+l2), 0s and 2 1s
         if is_parent==True:
             prob = np.argmax(y_pred[:, :parent_count],axis=-1)
             label = np.argmax(y_true[:,:parent_count],axis=-1)
@@ -343,7 +343,7 @@ class HierarchicalTimmEfficientNet(nn.Module):
 
 def load_hier_model_timm(parent_count, children_count, lin_dropout_rate=0.3, 
                         last_hidden=256, use_simple_head=True, base_model='tf_efficientnet_b5.ns_jft_in1k',
-                        trained_weight_path=None, image_size=None):
+                        trained_weight_path=None):
     """
     Load hierarchical model using timm backend
     """

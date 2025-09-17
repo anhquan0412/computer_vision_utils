@@ -10,7 +10,7 @@ from azure.storage.blob import ContainerClient
 import warnings; warnings.simplefilter('ignore')
 from .img_utils import crop_image, download_img
 from .common_utils import check_and_fix_http_path
-from .hierarchical_model import HierarchicalClassificationLoss,get_precision_recall_f1_metrics_group
+from .hierarchical_model import HierarchicalClassificationLoss,get_precision_recall_f1_metrics_group,get_precision_recall_f1_metrics_dhc
 from .hierarchical_rollup import precompute_rollup_maps_dynamic, rollup_predictions_dynamic
 from .viz_utils import clas_report_compact,plot_classification_report
 import timm
@@ -54,7 +54,7 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     path_prefix = str(path_prefix)
     if tta_n>0:
         val_probs,val_true = learner.tta(n=tta_n)
-        val_pred = val_probs[0].max(axis=1)[1]
+        val_pred = val_probs.max(axis=1)[1]
     else:
         val_probs,val_true,val_pred = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
     val_pred_str = list(map(lambda x: label_names[x],val_pred))
@@ -241,10 +241,9 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
 
     bold_print('training model')
     epoch = config['EPOCH']
-    freeze_epoch = config['FREEZE_EPOCH'] if 'FREEZE_EPOCH' in config else 1
     if len(metric_lists)<8:
         if 'FREEZE_EPOCH' in config and config['FREEZE_EPOCH']>0:
-            learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'],wd=weight_decay)
+            learn.fine_tune(epoch,freeze_epochs=config['FREEZE_EPOCH'],base_lr=config['LR'],wd=weight_decay)
         else:
             learn.unfreeze()
             learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
@@ -252,7 +251,7 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
     else:
         with learn.no_bar(), learn.no_logging():
             if 'FREEZE_EPOCH' in config and config['FREEZE_EPOCH']>0:
-                learn.fine_tune(epoch,freeze_epochs=freeze_epoch,base_lr=config['LR'],wd=weight_decay)
+                learn.fine_tune(epoch,freeze_epochs=config['FREEZE_EPOCH'],base_lr=config['LR'],wd=weight_decay)
             else:
                 learn.unfreeze()
                 learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
@@ -321,16 +320,39 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
                                   )
     # Import and use the new timm-compatible hierarchical model loader
     from .hierarchical_model import load_hier_model_timm
-    hier_model = load_hier_model_timm(len(parent_labels),len(children_labels),use_simple_head=True)
+    hier_model = load_hier_model_timm(parent_count = len(parent_labels),
+                                      child_count = len(children_labels),
+                                      base_model = config['CLASSIFICATION_MODEL'].replace('-', '_'),
+                                      lin_dropout_rate=config.get('HITAX_DROPOUT', 0.3),
+                                      last_hidden=config.get('HITAX_LAST_HIDDEN', 256),
+                                      use_simple_head=config.get('HITAX_USE_SIMPLE_HEAD', True)
+                                    )
+
     save_directory = Path(config['SAVE_DIRECTORY']) if 'SAVE_DIRECTORY' in config else Path('.')/'hier_model'
     save_directory.mkdir(exist_ok=True,parents=True)
     save_name = config['SAVE_NAME'] if 'SAVE_NAME' in config else 'hier_model'
+    pct_start = config['PCT_START'] if 'PCT_START' in config else 0.25
+    log_metrics = config['LOG_LABEL_METRICS'] if 'LOG_LABEL_METRICS' in config else []
+    assert set(log_metrics) - set(['precision','recall','f1'])==set()
+
+    # Enhanced training parameters for Vision Transformers
+    gradient_clip = config['GRADIENT_CLIP'] if 'GRADIENT_CLIP' in config else None
+    weight_decay = config['WEIGHT_DECAY'] if 'WEIGHT_DECAY' in config else None
+
     cbs=[
         SaveModelCallback(every_epoch=True,
                           fname=(save_directory/save_name)
                           ),
         CSVLogger(fname=(save_directory/f"{save_name}_training_log.csv"), append=True)
     ]
+    # Add gradient clipping callback if specified
+    if gradient_clip is not None and gradient_clip > 0:
+        cbs.append(GradientClip(max_norm=gradient_clip))
+        print(f"Using gradient clipping with max_norm={gradient_clip}")
+
+    mixup_alpha = config['MIXUP_ALPHA'] if ('MIXUP_ALPHA' in config and config['MIXUP_ALPHA']>0) else None
+    if mixup_alpha is not None:
+        cbs.append(MixUp(mixup_alpha))
 
     use_wandb = 'WANDB_PROJECT' in config
     if use_wandb:
@@ -338,11 +360,15 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
         wandb.init(project=config['WANDB_PROJECT'],name=save_name,config=config);
         cbs.append(WandbCallback(log_dataset=False, log_model=False, n_preds=49))
 
+
     metric_lists = get_precision_recall_f1_metrics_group(parent_labels)
+    for lm in log_metrics:
+        metric_lists += get_precision_recall_f1_metrics_dhc(parent_labels,children_labels,mtype=lm)
 
     l1_weight = config['L1_WEIGHT'] if 'L1_WEIGHT' in config else 1.0
     l2_weight = config['L2_WEIGHT'] if 'L2_WEIGHT' in config else 2.0
     focal_gamma = config['FOCAL_GAMMA'] if 'FOCAL_GAMMA' in config else 1.0
+
     learn = Learner(dls, hier_model, 
                 metrics=metric_lists,
                 loss_func = HierarchicalClassificationLoss(len(parent_labels),l1_weight,l2_weight,0.,
@@ -351,14 +377,34 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
                 cbs=cbs
                ).to_fp16()
 
+    # Print weight decay information
+    if weight_decay is not None and weight_decay > 0:
+        print(f"Using weight decay: {weight_decay}")
+
     bold_print('training model')
     epoch = config['EPOCH']
-    
-    learn.unfreeze()
-    learn.fit_one_cycle(epoch,config['LR'],pct_start=config['PCT_START'] if 'PCT_START' in config else 0.25)
+
+    if len(metric_lists)<8:
+        if 'FREEZE_EPOCH' in config and config['FREEZE_EPOCH']>0:
+            learn.fine_tune(epoch,freeze_epochs=config['FREEZE_EPOCH'],base_lr=config['LR'],wd=weight_decay)
+        else:
+            learn.unfreeze()
+            learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
+        
+    else:
+        with learn.no_bar(), learn.no_logging():
+            if 'FREEZE_EPOCH' in config and config['FREEZE_EPOCH']>0:
+                learn.fine_tune(epoch,freeze_epochs=config['FREEZE_EPOCH'],base_lr=config['LR'],wd=weight_decay)
+            else:
+                learn.unfreeze()
+                learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
+
+
 
     _ax = learn.recorder.plot_loss(show_epochs=True)
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
+    
+
     
     if use_wandb:
         wandb.finish();
