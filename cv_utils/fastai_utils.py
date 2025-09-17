@@ -71,7 +71,7 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     if df_val is not None:
         if len(df_val)==len(df_pred):
             df_show = pd.concat([df_val.reset_index(drop=True),df_pred],axis=1)
-            df_show['abs_file'] = df_show['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[0] if isinstance(x,str) else x[0])
+            df_show['file'] = df_show['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[0] if isinstance(x,str) else x[0])
             df_show['bbox'] = df_show['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[1] if isinstance(x,str) else x[1])
         else:
             print(f'Mismatch length between validation data ({len(df_val)}) and validation predictions ({len(df_pred)})')
@@ -83,7 +83,7 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
                            columns=['y_prob1','y_prob2','y_pred1','y_pred2'])
     df_prob = pd.concat([df_show[['y_true']].copy(),df_prob],axis=1)
 
-    metadata_cols = list(set(['abs_file','bbox','identifier','identifier_2','is_color','is_prev']) & set(df_show.columns))
+    metadata_cols = list(set(['file','bbox','identifier','identifier_2','is_color','is_prev']) & set(df_show.columns))
     if len(metadata_cols):
         df_show = pd.concat([df_show[metadata_cols].copy(),df_prob],axis=1) #note: hardcode columns
     else:
@@ -327,7 +327,8 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
                                       last_hidden=config.get('HITAX_LAST_HIDDEN', 256),
                                       use_simple_head=config.get('HITAX_USE_SIMPLE_HEAD', True)
                                     )
-
+    
+    save_every_epoch = config['SAVE_EVERY_EPOCH'] if 'SAVE_EVERY_EPOCH' in config else False
     save_directory = Path(config['SAVE_DIRECTORY']) if 'SAVE_DIRECTORY' in config else Path('.')/'hier_model'
     save_directory.mkdir(exist_ok=True,parents=True)
     save_name = config['SAVE_NAME'] if 'SAVE_NAME' in config else 'hier_model'
@@ -340,8 +341,11 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
     weight_decay = config['WEIGHT_DECAY'] if 'WEIGHT_DECAY' in config else None
 
     cbs=[
-        SaveModelCallback(every_epoch=True,
-                          fname=(save_directory/save_name)
+        SaveModelCallback(
+                          monitor='valid_loss',
+                          every_epoch=save_every_epoch,
+                          fname=(save_directory/save_name),
+                          comp=np.less # due to loss monitor
                           ),
         CSVLogger(fname=(save_directory/f"{save_name}_training_log.csv"), append=True)
     ]
@@ -399,13 +403,11 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
                 learn.unfreeze()
                 learn.fit_one_cycle(epoch,config['LR'],pct_start=pct_start,wd=weight_decay)
 
-
-
     _ax = learn.recorder.plot_loss(show_epochs=True)
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
     
+    # TODO: validation prediction for hier tax
 
-    
     if use_wandb:
         wandb.finish();
     return learn
