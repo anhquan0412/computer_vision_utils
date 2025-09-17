@@ -47,13 +47,11 @@ def get_precision_recall_f1_metrics(label_names,mtype="f1"):
         metrics.append(AccumMetric(precision_recall_f1_func(v,i,mtype),dim_argmax=-1,to_np=True,invert_arg=True))
     return metrics
 
-def fastai_predict_val(learner,label_names,save_path,df_val=None):
-    def _get_label_for_plot(x,label_len):
-    # first 7 columns: identifier	identifier_2	is_color	is_prev	y_true	abs_file	bbox	
-        x_prob = x.iloc[7:7+label_len]
+def fastai_predict_val(learner,label_names,path_prefix,df_val=None):
+    def _get_label_for_plot(x_prob):
         x_sort = x_prob.iloc[x_prob.argsort()[::-1][:2]] # get the top 2 probabilities and predictions. Note: hardcode
         return np.array([x_sort,x_sort.index]).flatten()
-    
+    path_prefix = str(path_prefix)
     val_probs,val_true,val_pred = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
     val_pred_str = list(map(lambda x: label_names[x],val_pred))
     val_true_str = list(map(lambda x: label_names[x],val_true))
@@ -67,29 +65,39 @@ def fastai_predict_val(learner,label_names,save_path,df_val=None):
     
     df_show=None
     if df_val is not None:
-        assert len(df_val)==len(df_pred)
-        df_pred = pd.concat([df_val.reset_index(drop=True),df_pred],axis=1)
-        df_pred['abs_file'] = df_pred['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[0])
-        df_pred['bbox'] = df_pred['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[1])
-        df_prob = pd.DataFrame(df_pred.apply(partial(_get_label_for_plot,label_len = len(label_names)),axis=1).tolist(),
-                        columns=['y_prob1','y_prob2','y_pred1','y_pred2'])
-        df_show = pd.concat([df_pred[['y_true','abs_file','bbox']].copy(),df_prob],axis=1)
-        df_show = pd.concat([df_val[['identifier','identifier_2','is_color','is_prev']].copy(),df_show],axis=1) #note: hardcode columns
+        if len(df_val)==len(df_pred):
+            df_show = pd.concat([df_val.reset_index(drop=True),df_pred],axis=1)
+            df_show['abs_file'] = df_show['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[0] if isinstance(x,str) else x[0])
+            df_show['bbox'] = df_show['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[1] if isinstance(x,str) else x[1])
+        else:
+            print(f'Mismatch length between validation data ({len(df_val)}) and validation predictions ({len(df_pred)})')
 
-        # add a column label_show, which is (prob1, prob2) if pred2==true, else (prob1, pred2: prob2)
-        df_show['label_show'] = df_show[['y_true','y_prob1','y_prob2','y_pred1','y_pred2']].apply(lambda x: (round(x['y_prob1'],2),round(x['y_prob2'],2)) if x['y_pred2']==x['y_true'] else \
-                                                                                                  (round(x['y_prob1'],2),f"{x['y_pred2'].split('|')[1].strip()}: {round(x['y_prob2'],2)}"),
-                                                                                                  axis=1)
+    if df_show is None:
+        df_show = df_pred
 
-    report_df_compact.to_csv(save_path + '_short_report.csv')
-    report_df.to_csv(save_path + '_full_report.csv')
-    plot_classification_report(report_df,figsize=(30,16),fname=save_path + '_full_report.png')
-    plot_classification_report(report_df[report_df['f1-score']<=0.9],figsize=(16,10),fname=save_path + '_full_report.png')
+    df_prob = pd.DataFrame(df_show[label_names].apply(_get_label_for_plot,axis=1).tolist(),
+                           columns=['y_prob1','y_prob2','y_pred1','y_pred2'])
+    df_prob = pd.concat([df_show[['y_true']].copy(),df_prob],axis=1)
 
-    df_pred.to_csv(save_path + '_val_pred.csv',index=False)
-    df_show.to_csv(save_path + '_val_pred_for_show.csv',index=False)
-    print(f'Predictions saved to {save_path}')
+    metadata_cols = list(set(['abs_file','bbox','identifier','identifier_2','is_color','is_prev']) & set(df_show.columns))
+    if len(metadata_cols):
+        df_show = pd.concat([df_show[metadata_cols].copy(),df_prob],axis=1) #note: hardcode columns
+    else:
+        df_show = df_prob
 
+    # add a column label_show, which is (prob1, prob2) if pred2==true, else (prob1, pred2: prob2)
+    df_show['label_show'] = df_show[['y_true','y_prob1','y_prob2','y_pred1','y_pred2']].apply(lambda x: (round(x['y_prob1'],2),round(x['y_prob2'],2)) if x['y_pred2']==x['y_true'] else \
+                                                                                                (round(x['y_prob1'],2),f"{x['y_pred2'].split('|')[1].strip()}: {round(x['y_prob2'],2)}"),
+                                                                                                axis=1)
+
+    report_df_compact.to_csv(path_prefix + '_short_report.csv')
+    report_df.to_csv(path_prefix + '_full_report.csv')
+    plot_classification_report(report_df,figsize=(30,16),fname=path_prefix + '_full_report.png')
+    plot_classification_report(report_df[report_df['f1-score']<=0.9],figsize=(16,10),fname=path_prefix + '_low_f1_report.png')
+
+    df_pred.to_csv(path_prefix + '_val_pred.csv',index=False)
+    df_show.to_csv(path_prefix + '_val_pred_for_show.csv',index=False)
+    print(f'Predictions saved with path prefix {path_prefix}')
 
 
 class PILMDImage(PILBase):
@@ -246,9 +254,9 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
     if save_valid_pred:
         bold_print('predicting validation set')
         df_val = df[df['is_val']==True].copy()
-        save_path = str(save_directory/save_name)
-        fastai_predict_val(learn,label_names,df_val=df_val,save_path=save_path)
-    
+        path_prefix = str(save_directory/save_name)
+        fastai_predict_val(learn,label_names,df_val=df_val,path_prefix=path_prefix)
+
     if use_wandb:
         wandb.finish();
     return learn
