@@ -321,7 +321,7 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
     # Import and use the new timm-compatible hierarchical model loader
     from .hierarchical_model import load_hier_model_timm
     hier_model = load_hier_model_timm(parent_count = len(parent_labels),
-                                      child_count = len(children_labels),
+                                      children_count = len(children_labels),
                                       base_model = config['CLASSIFICATION_MODEL'].replace('-', '_'),
                                       lin_dropout_rate=config.get('HITAX_DROPOUT', 0.3),
                                       last_hidden=config.get('HITAX_LAST_HIDDEN', 256),
