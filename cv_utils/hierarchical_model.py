@@ -341,9 +341,13 @@ class HierarchicalTimmEfficientNet(nn.Module):
         return logits
 
 
-def load_hier_model_timm(parent_count, children_count, lin_dropout_rate=0.3, 
-                        last_hidden=256, use_simple_head=True, base_model='tf_efficientnet_b5.ns_jft_in1k',
-                        trained_weight_path=None):
+def load_hier_model_timm(finetuned_model,
+                         parent_count, 
+                         children_count, 
+                         lin_dropout_rate=0.3, 
+                        last_hidden=256, 
+                        use_simple_head=True, 
+                        base_model='tf_efficientnet_b5.ns_jft_in1k'):
     """
     Load hierarchical model using timm backend
     """
@@ -360,15 +364,14 @@ def load_hier_model_timm(parent_count, children_count, lin_dropout_rate=0.3,
         base_model=timm_model_name
     )
     
-    # Load trained weights if provided
-    if trained_weight_path is not None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        state_dict = torch.load(trained_weight_path, map_location=device)
-        ret = hier_model.load_state_dict(state_dict, strict=False)
-        if len(ret.missing_keys):
-            print(f'Missing keys: {ret.missing_keys}')
-        if len(ret.unexpected_keys):
-            print(f'Unexpected keys: {ret.unexpected_keys}')
+    # Load trained weights 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    state_dict = torch.load(finetuned_model, map_location=device)
+    ret = hier_model.load_state_dict(state_dict, strict=False)
+    if len(ret.missing_keys):
+        print(f'Missing keys: {ret.missing_keys}')
+    if len(ret.unexpected_keys):
+        print(f'Unexpected keys: {ret.unexpected_keys}')
     
     return hier_model
     

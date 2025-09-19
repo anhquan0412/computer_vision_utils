@@ -245,6 +245,9 @@ class DetectAndClassify:
                  hitax_output=None, # 'parent' for parent only, 'child' for child only, anything else for merged output (hitax)
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
                  hitax_threshold=0.75, # threshold for for hitax or rollup classification, default is 0.75
+                 hitax_lin_dropout=0.3, # dropout rate for the linear layer in hitax
+                 hitax_last_hidden=256, # last hidden layer size for hierarchical classification model
+                 hitax_use_simple_head=True # whether to use simple head for hierarchical classification model
                 ):
         self.md_inference = MegaDetectorInference(md_path)
         self.class_inference = None
@@ -258,17 +261,22 @@ class DetectAndClassify:
 
         if finetuned_model is not None and label_info is not None:
             self.class_inference = ClassificationInference(label_info=label_info,
-                                                                 classification_model=classification_model,
-                                                                 finetuned_model=finetuned_model,
-                                                                 item_tfms=item_tfms,
-                                                                 aug_tfms=aug_tfms,
-                                                                 parent_info=parent_info,
-                                                                 child2parent=child2parent,
-                                                                 parent2child=parent2child,
-                                                                 hitax_threshold=hitax_threshold,
-                                                                 )
+                                                            classification_model=classification_model,
+                                                            finetuned_model=finetuned_model,
+                                                            item_tfms=item_tfms,
+                                                            aug_tfms=aug_tfms,
+                                                            parent_info=parent_info,
+                                                            child2parent=child2parent,
+                                                            parent2child=parent2child,
+                                                            hitax_threshold=hitax_threshold,
+                                                            hitax_lin_dropout=hitax_lin_dropout,
+                                                            hitax_last_hidden=hitax_last_hidden,
+                                                            hitax_use_simple_head=hitax_use_simple_head
+                                                            )
 
     def hitax_cleanup(self,df):
+        if df.shape[0]==0:
+            return df
         if self.class_inference.is_rollup or (self.class_inference.is_hitax and self.class_inference.hitax_threshold is not None):
             # file  detection_bbox  pred_1  prob_1  level
             # shift index of children (level 2) by len(self.class_inference.parent_info)

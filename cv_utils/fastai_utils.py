@@ -47,10 +47,39 @@ def get_precision_recall_f1_metrics(label_names,mtype="f1"):
         metrics.append(AccumMetric(precision_recall_f1_func(v,i,mtype),dim_argmax=-1,to_np=True,invert_arg=True))
     return metrics
 
-def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
-    def _get_label_for_plot(x_prob):
+
+class PILMDImage(PILBase):
+    # Blob client variable
+    input_container_client = None
+
+    @classmethod
+    def create(cls, inps, **kwargs):
+        if isinstance(inps, Iterable) and not isinstance(inps, str):
+            # containing bbox. Either (file_path, bbox) or [[file_path, bbox]]
+            if len(inps) == 1:
+                inps = inps[0]
+            inps = list(inps)
+            inps[0] = download_img(check_and_fix_http_path(inps[0]),
+                                   PILMDImage.input_container_client)
+            img = PILImage.create(inps[0])
+            norm_bbox = inps[1]
+            img = crop_image(img, norm_bbox, square_crop=True)
+            return PILImage.create(img)
+
+        inps = download_img(check_and_fix_http_path(inps),
+                            PILMDImage.input_container_client)
+        return PILImage.create(inps)
+
+# Update PILImageFactory to set the container client
+def PILImageFactory(container_client=None):
+    PILMDImage.input_container_client = container_client
+    return PILMDImage
+
+def _get_label_for_plot(x_prob):
         x_sort = x_prob.iloc[x_prob.argsort()[::-1][:2]] # get the top 2 probabilities and predictions. Note: hardcode
         return np.array([x_sort,x_sort.index]).flatten()
+
+def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     path_prefix = str(path_prefix)
     if tta_n>0:
         val_probs,val_true = learner.tta(n=tta_n)
@@ -107,34 +136,6 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     df_pred.to_csv(path_prefix + '_val_pred.csv',index=False)
     df_show.to_csv(path_prefix + '_val_pred_for_show.csv',index=False)
     print(f'Predictions saved with path prefix {path_prefix}')
-
-
-class PILMDImage(PILBase):
-    # Blob client variable
-    input_container_client = None
-
-    @classmethod
-    def create(cls, inps, **kwargs):
-        if isinstance(inps, Iterable) and not isinstance(inps, str):
-            # containing bbox. Either (file_path, bbox) or [[file_path, bbox]]
-            if len(inps) == 1:
-                inps = inps[0]
-            inps = list(inps)
-            inps[0] = download_img(check_and_fix_http_path(inps[0]),
-                                   PILMDImage.input_container_client)
-            img = PILImage.create(inps[0])
-            norm_bbox = inps[1]
-            img = crop_image(img, norm_bbox, square_crop=True)
-            return PILImage.create(img)
-
-        inps = download_img(check_and_fix_http_path(inps),
-                            PILMDImage.input_container_client)
-        return PILImage.create(inps)
-
-# Update PILImageFactory to set the container client
-def PILImageFactory(container_client=None):
-    PILMDImage.input_container_client = container_client
-    return PILMDImage
 
 def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=False,tta_n=0):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
@@ -269,8 +270,105 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
         wandb.finish();
     return learn
 
+def fastai_hier_predict_val(learner,
+                            parent_names,
+                            children_names,
+                            path_prefix,
+                            df_val=None,
+                            tta_n=2):
+    path_prefix = str(path_prefix)
 
-def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None,children_label=None,concat_label=None):
+    if tta_n>0:
+        val_probs,val_true = learner.tta(n=tta_n)
+    else:
+        val_probs,val_true,_ = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
+
+    label_length = [0] + [len(parent_names),len(children_names)]
+    label_names = [parent_names,children_names]
+    total_val_probs,total_val_true = [],[]
+    for i in range(len(label_names)):
+        total_val_probs.append(val_probs[label_length[i] : label_length[i]+label_length[i+1]].softmax(axis=1))
+        total_val_true.append(torch.where(val_true[label_length[i] : label_length[i]+label_length[i+1]]==1)[1])
+
+    val_pred_str,val_true_str = [],[]
+    for i in range(len(label_names)):
+        val_pred_str.append(list(map(lambda x: label_names[i][x],total_val_probs[i].max(axis=1)[1])))
+        val_true_str.append(list(map(lambda x: label_names[i][x],total_val_true[i])))
+
+
+    df_pred = pd.DataFrame()
+    for a,b,c,d,e in zip(['parent','children'],val_pred_str,val_true_str,label_names,total_val_probs):
+        df_pred[f'y_{a}_pred'] = b
+        df_pred[f'y_{a}_true'] = c
+        df_pred[d] = torch.round(e,decimals=5)
+
+
+    # hardcode true and pred columns in df_pred
+    report_df_compacts,report_dfs = [],[]
+    for a,b in zip(['parent','children'],label_names):
+        report_df_compact,report_df = clas_report_compact(df_pred[f'y_{a}_true'].tolist(),df_pred[f'y_{a}_pred'].tolist(),
+                                                          label_names=b)
+        report_df_compacts.append(report_df_compact)
+        report_dfs.append(report_df)
+
+    
+    df_show=None
+    if df_val is not None:
+        if len(df_val)==len(df_pred):
+            df_show = pd.concat([df_val.reset_index(drop=True),df_pred],axis=1)
+            for i,v in enumerate(['file','bbox']):
+                df_show[v] = df_show['file_and_bbox'].apply(lambda x: ast.literal_eval(x)[i] if isinstance(x,str) else x[i])
+        else:
+            print(f'Mismatch length between validation data ({len(df_val)}) and validation predictions ({len(df_pred)})')
+
+    if df_show is None:
+        df_show = df_pred
+
+    df_probs=[]
+    for a,b in zip(['parent','children'],label_names):
+        df_prob = pd.DataFrame(df_show[b].apply(_get_label_for_plot,axis=1).tolist(),
+                               columns=[f'y_{a}_prob1',f'y_{a}_prob2',f'y_{a}_pred1',f'y_{a}_pred2'])
+        df_prob = pd.concat([df_show[[f'y_{a}_true']].copy(),df_prob],axis=1)
+        df_probs.append(df_prob)
+
+    df_probs = pd.concat(df_probs,axis=1)
+
+    metadata_cols = list(set(['file','bbox','identifier','identifier_2','is_color','is_prev']) & set(df_show.columns))
+
+    if len(metadata_cols):
+        df_show = pd.concat([df_show[metadata_cols].copy(),df_probs],axis=1) #note: hardcode columns
+    else:
+        df_show = df_probs
+
+    def _format_label_show(x,label_type):
+        _tmp = x[f'y_{label_type}_pred1'].split('|')
+        pred1_label = _tmp[1].strip() if len(_tmp) > 1 else _tmp[0].strip()
+        _tmp = x[f'y_{label_type}_pred2'].split('|')
+        pred2_label = _tmp[1].strip() if len(_tmp) > 1 else _tmp[0].strip()
+        return f"{pred1_label}: {round(x[f'y_{label_type}_prob1'],2)}\n{pred2_label}: {round(x[f'y_{label_type}_prob2'],2)}"
+
+    for i in ['parent','children']:
+        df_show[f'{i}_label_show'] = df_show[[f'y_{i}_true',f'y_{i}_prob1',f'y_{i}_prob2',f'y_{i}_pred1',f'y_{i}_pred2']].apply(lambda x: _format_label_show(x,i),
+                                                                                                                                axis=1)
+    report_df_compacts = pd.concat(report_df_compacts,keys=['parent','children'])
+    report_df_compacts.to_csv(path_prefix + '_short_report.csv')
+    pd.concat(report_dfs,keys=['parent','children']).to_csv(path_prefix + '_full_report.csv')
+    for a,b in zip(['parent','children'],report_dfs):
+        plot_classification_report(b,figsize=(30,16),fontsize=10,fname=path_prefix + f'_{a}_full_report.png')
+        plot_classification_report(b[b['f1-score']<=0.9],figsize=(16,10),fontsize=10,fname=path_prefix + f'_{a}_low_f1_report.png')
+
+    df_pred.to_csv(path_prefix + '_val_pred.csv',index=False)
+    df_show.to_csv(path_prefix + '_val_pred_for_show.csv',index=False)
+    print(f'Predictions saved with path prefix {path_prefix}')
+
+
+def fastai_cv_train_hierarchical(config,df,
+                                 aug_tfms=None,
+                                 parent_label=None,
+                                 children_label=None,
+                                 concat_label=None,
+                                 save_valid_pred=False,
+                                 tta_n=0):
     # df should have these columns
     # - file_and_bbox: a tuple/list of (file_path, bbox), or a list of file_path. file_path is relative path
     # - parent_label: the parent label (string)
@@ -281,7 +379,9 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
     from .fastai_train_utils import ImageDataLoaders_from_df
 
     parent_labels = np.sort(df[parent_label].unique()).tolist()
+    parent_labels = [label.replace('/', ' ') for label in parent_labels]
     children_labels = np.sort(df[children_label].unique()).tolist()
+    children_labels = [label.replace('/', ' ') for label in children_labels]
     child2parent = list(df[[children_label,parent_label]].drop_duplicates().set_index(children_label).to_dict().values())[0]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     child2parent_idx = torch.tensor([parent_labels.index(child2parent[ch]) for ch in children_labels],dtype=torch.int32).to(device)
@@ -375,9 +475,12 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
 
     learn = Learner(dls, hier_model, 
                 metrics=metric_lists,
-                loss_func = HierarchicalClassificationLoss(len(parent_labels),l1_weight,l2_weight,0.,
+                loss_func = HierarchicalClassificationLoss(len(parent_labels),
+                                                           l1_weight,
+                                                           l2_weight,
+                                                           0.,
                                                            focal_gamma=focal_gamma,
-                                                          child_to_parent_mapping=child2parent_idx),
+                                                           child_to_parent_mapping=child2parent_idx),
                 cbs=cbs
                ).to_fp16()
 
@@ -406,8 +509,16 @@ def fastai_cv_train_hierarchical_model(config,df,aug_tfms=None,parent_label=None
     _ax = learn.recorder.plot_loss(show_epochs=True)
     plt.savefig((save_directory/f'{save_name}_learning_curve.png'), bbox_inches='tight')
     
-    # TODO: validation prediction for hier tax
-
+    if save_valid_pred:
+        bold_print('predicting validation set')
+        df_val = df[df['is_val']==True].copy()
+        path_prefix = str(save_directory/save_name)
+        fastai_hier_predict_val(learn,
+                                parent_names=parent_labels,
+                                children_names=children_labels,
+                                df_val=df_val,
+                                path_prefix=path_prefix,
+                                tta_n=tta_n)
     if use_wandb:
         wandb.finish();
     return learn
@@ -486,8 +597,7 @@ def prepare_inference_dataloader(inputs, # list of image paths or tuples of (ima
 
 def load_classification_model(finetuned_model, 
                             classification_model='tf_efficientnet_b5.ns_jft_in1k', 
-                            label_info=None, # list of output labels, or the number of labels
-                            image_size=None
+                            label_info=None # list of output labels, or the number of labels
                             ):
     # Convert model name format for timm
     timm_model_name = classification_model.replace('-', '_')
@@ -520,6 +630,9 @@ class ClassificationInference:
                  parent2child=None, # dictionary of parent to child mapping, needed for rollup classification
                  hitax_threshold=0.75, # threshold for for hitax or rollup classification, default is 0.75
                  #  l1_morethan=None, # threshold, any parent label with probability more than this will be chosen, needed for hierarchical classification
+                 hitax_lin_dropout=0.3, # dropout rate for hierarchical classification model
+                 hitax_last_hidden=256, # last hidden layer size for hierarchical classification model
+                 hitax_use_simple_head=True # whether to use simple head for hierarchical classification model
                 ):
 
         # check whether finetuned_model string ends with .pth or .pt
@@ -534,18 +647,10 @@ class ClassificationInference:
         self.parent_info = parent_info
         self.label_info = label_info
         self.child2parent = child2parent
-        self.hitax_threshold = hitax_threshold
         self.parent2child = parent2child
+        self.hitax_threshold = hitax_threshold
+        
         self.model = None
-
-        image_size = None
-        if hasattr(self.item_tfms, 'size'):
-            # Handles Resize, Squish, Pad, Crop
-            size = self.item_tfms.size
-            if isinstance(size, int):
-                image_size = size
-            elif isinstance(size, (list, tuple)) and len(size) == 2:
-                image_size = size[0] # Assume square images for simplicity, take height
 
         if parent_info is not None:
             if child2parent is not None:
@@ -560,14 +665,13 @@ class ClassificationInference:
                 self.child2parent_idx = torch.tensor([parent_info.index(child2parent[ch]) for ch in label_info], dtype=torch.int32)
                 # Import the new timm-compatible hierarchical model loader
                 from .hierarchical_model import load_hier_model_timm
-                self.model = load_hier_model_timm(parent_count = parent_count,
-                                                children_count = label_count,
-                                                lin_dropout_rate=0.3,
-                                                last_hidden=256,
-                                                use_simple_head=True,
-                                                base_model=classification_model,
-                                                trained_weight_path=finetuned_model,
-                                                image_size=image_size
+                self.model = load_hier_model_timm(finetuned_model=finetuned_model,
+                                                  parent_count=parent_count,
+                                                  children_count=label_count,
+                                                  lin_dropout_rate=hitax_lin_dropout,
+                                                  last_hidden=hitax_last_hidden,
+                                                  use_simple_head=hitax_use_simple_head,
+                                                  base_model=classification_model.replace('-', '_')
                                                 )
             elif parent2child is not None:
                 self.is_rollup = True
@@ -580,8 +684,7 @@ class ClassificationInference:
         if self.model is None:
             self.model = load_classification_model(finetuned_model=finetuned_model,
                                                  classification_model=classification_model,
-                                                 label_info=label_info,
-                                                 image_size=image_size)
+                                                 label_info=label_info)
         self.model.eval()
 
     def validate_df(self,df):
@@ -685,7 +788,8 @@ class ClassificationInference:
         if isinstance(inputs, pd.DataFrame):
             inputs = inputs.copy()
             inputs = self.validate_df(inputs)
-        if len(inputs)==0: return pd.DataFrame()
+        if len(inputs)==0: 
+            return pd.DataFrame(columns=['file', 'detection_bbox', 'pred_1', 'prob_1'])
         
         dls,valid_idxs = prepare_inference_dataloader(inputs,
                                                       input_container_sas=input_container_sas,
