@@ -287,8 +287,8 @@ def fastai_hier_predict_val(learner,
     label_names = [parent_names,children_names]
     total_val_probs,total_val_true = [],[]
     for i in range(len(label_names)):
-        total_val_probs.append(val_probs[label_length[i] : label_length[i]+label_length[i+1]].softmax(axis=1))
-        total_val_true.append(torch.where(val_true[label_length[i] : label_length[i]+label_length[i+1]]==1)[1])
+        total_val_probs.append(val_probs[:,label_length[i] : label_length[i]+label_length[i+1]].softmax(axis=1))
+        total_val_true.append(torch.where(val_true[:,label_length[i] : label_length[i]+label_length[i+1]]==1)[1])
 
     val_pred_str,val_true_str = [],[]
     for i in range(len(label_names)):
@@ -355,7 +355,7 @@ def fastai_hier_predict_val(learner,
     pd.concat(report_dfs,keys=['parent','children']).to_csv(path_prefix + '_full_report.csv')
     for a,b in zip(['parent','children'],report_dfs):
         plot_classification_report(b,figsize=(30,16),fontsize=10,fname=path_prefix + f'_{a}_full_report.png')
-        plot_classification_report(b[b['f1-score']<=0.9],figsize=(16,10),fontsize=10,fname=path_prefix + f'_{a}_low_f1_report.png')
+        plot_classification_report(b[b['f1-score']<=0.9],figsize=(16,10),fontsize=8,fname=path_prefix + f'_{a}_low_f1_report.png')
 
     df_pred.to_csv(path_prefix + '_val_pred.csv',index=False)
     df_show.to_csv(path_prefix + '_val_pred_for_show.csv',index=False)
