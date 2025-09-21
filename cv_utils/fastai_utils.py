@@ -180,8 +180,9 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
     if not label_names:
         label_names = dls.vocab.items.items
 
-    timm_model_name = config['CLASSIFICATION_MODEL'].replace('-', '_')
-    model = timm.create_model(timm_model_name, pretrained=True, num_classes=len(label_names))
+    model = load_classification_model(finetuned_model=config.get('FINETUNED_MODEL', None),
+                                      classification_model=config.get('CLASSIFICATION_MODEL', 'tf_efficientnet_b5.ns_jft_in1k'),
+                                      label_info=label_names)
     
     monitor_metric = config['MONITOR_METRIC'] if 'MONITOR_METRIC' in config else 'f1_score' #'valid_loss'
     save_every_epoch = config['SAVE_EVERY_EPOCH'] if 'SAVE_EVERY_EPOCH' in config else False
@@ -423,8 +424,9 @@ def fastai_cv_train_hierarchical(config,df,
     from .hierarchical_model import load_hier_model_timm
     hier_model = load_hier_model_timm(parent_count = len(parent_labels),
                                       children_count = len(children_labels),
-                                      base_model = config['CLASSIFICATION_MODEL'].replace('-', '_'),
-                                      lin_dropout_rate=config.get('HITAX_DROPOUT', 0.3),
+                                      finetuned_model=config.get('FINETUNED_MODEL', None),
+                                      base_model = config.get('CLASSIFICATION_MODEL', 'tf_efficientnet_b5.ns_jft_in1k'),
+                                      lin_dropout_rate=config.get('HITAX_DROPOUT', 0.3) if 'HITAX_DROPOUT' in config else 0.3,
                                       last_hidden=config.get('HITAX_LAST_HIDDEN', 256),
                                       use_simple_head=config.get('HITAX_USE_SIMPLE_HEAD', True)
                                     )
@@ -596,27 +598,28 @@ def prepare_inference_dataloader(inputs, # list of image paths or tuples of (ima
                                   shuffle=False)
     return dls,valid_idxs
 
-def load_classification_model(finetuned_model, 
+def load_classification_model(finetuned_model=None, 
                             classification_model='tf_efficientnet_b5.ns_jft_in1k', 
                             label_info=None # list of output labels, or the number of labels
                             ):
     # Convert model name format for timm
     timm_model_name = classification_model.replace('-', '_')
     num_classes = label_info if isinstance(label_info, int) else len(label_info)
-    
-    # Create model with timm (without pretrained weights)
-    model = timm.create_model(timm_model_name, pretrained=False, num_classes=num_classes)
-    
-    # Load fine-tuned weights
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    state_dict = torch.load(finetuned_model, map_location=device)
-    ret = model.load_state_dict(state_dict, strict=False)
-    if len(ret.missing_keys):
-        print(f'Missing weights: {ret.missing_keys}')
-    if len(ret.unexpected_keys):
-        print(f'Unexpected weights: {ret.unexpected_keys}')
-    
-    print(f'Loaded timm classification model: {timm_model_name} with {num_classes} classes')
+    if finetuned_model is not None:
+        # Create model with timm (without pretrained weights)
+        model = timm.create_model(timm_model_name, pretrained=False, num_classes=num_classes)
+        # Load fine-tuned weights
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        state_dict = torch.load(finetuned_model, map_location=device)
+        ret = model.load_state_dict(state_dict, strict=False)
+        if len(ret.missing_keys):
+            print(f'Missing weights: {ret.missing_keys}')
+        if len(ret.unexpected_keys):
+            print(f'Unexpected weights: {ret.unexpected_keys}')
+        print(f'Loaded finetuned timm classification model: {Path(finetuned_model).name} with {num_classes} classes')
+    else:
+        model = timm.create_model(timm_model_name, pretrained=True, num_classes=num_classes)
+        print(f'Loaded pretrained timm classification model: {timm_model_name} with {num_classes} classes')
     return model
 
 class ClassificationInference:
@@ -672,7 +675,7 @@ class ClassificationInference:
                                                   lin_dropout_rate=hitax_lin_dropout,
                                                   last_hidden=hitax_last_hidden,
                                                   use_simple_head=hitax_use_simple_head,
-                                                  base_model=classification_model.replace('-', '_')
+                                                  base_model=classification_model
                                                 )
             elif parent2child is not None:
                 self.is_rollup = True

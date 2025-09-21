@@ -341,9 +341,9 @@ class HierarchicalTimmEfficientNet(nn.Module):
         return logits
 
 
-def load_hier_model_timm(finetuned_model,
-                         parent_count, 
-                         children_count, 
+def load_hier_model_timm(parent_count, 
+                         children_count,
+                         finetuned_model=None, 
                          lin_dropout_rate=0.3, 
                         last_hidden=256, 
                         use_simple_head=True, 
@@ -363,15 +363,18 @@ def load_hier_model_timm(finetuned_model,
         use_simple_head=use_simple_head,
         base_model=timm_model_name
     )
-    
-    # Load trained weights 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    state_dict = torch.load(finetuned_model, map_location=device)
-    ret = hier_model.load_state_dict(state_dict, strict=False)
-    if len(ret.missing_keys):
-        print(f'Missing keys: {ret.missing_keys}')
-    if len(ret.unexpected_keys):
-        print(f'Unexpected keys: {ret.unexpected_keys}')
+    if finetuned_model is not None:
+        # Load trained weights
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        state_dict = torch.load(finetuned_model, map_location=device)
+        ret = hier_model.load_state_dict(state_dict, strict=False)
+        if len(ret.missing_keys):
+            print(f'Missing keys: {ret.missing_keys}')
+        if len(ret.unexpected_keys):
+            print(f'Unexpected keys: {ret.unexpected_keys}')
+        print(f'Loaded finetuned timm hierarchical model: {Path(finetuned_model).name} with {parent_count} parents and {children_count} children')
+    else:
+        print(f'Loaded pretrained timm hierarchical model: {timm_model_name} with {parent_count} parents and {children_count} children')
     
     return hier_model
     
