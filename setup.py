@@ -10,11 +10,12 @@ setup(
     version='0.4.0',
     packages=find_packages(),
     install_requires=[
-        'megadetector', # 5.0.25
+        'megadetector',
         'fastai',
         'tqdm',
         'Pillow',
         'matplotlib',
+        'scikit-learn',
         'wandb',
         'timm',
         'azure-storage-blob'
