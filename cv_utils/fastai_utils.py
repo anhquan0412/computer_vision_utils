@@ -377,11 +377,12 @@ def fastai_cv_train_hierarchical(config,df,
     # - is_val: boolean, True if the row is for validation set, False otherwise
 
     from .fastai_train_utils import ImageDataLoaders_from_df
-
+    
+    # replace '/ with ' ' in parent_label and children_label
+    df[parent_label] = df[parent_label].apply(lambda x: x.replace('/', ' '))
+    df[children_label] = df[children_label].apply(lambda x: x.replace('/', ' '))
     parent_labels = np.sort(df[parent_label].unique()).tolist()
-    parent_labels = [label.replace('/', ' ') for label in parent_labels]
     children_labels = np.sort(df[children_label].unique()).tolist()
-    children_labels = [label.replace('/', ' ') for label in children_labels]
     child2parent = list(df[[children_label,parent_label]].drop_duplicates().set_index(children_label).to_dict().values())[0]
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     child2parent_idx = torch.tensor([parent_labels.index(child2parent[ch]) for ch in children_labels],dtype=torch.int32).to(device)
