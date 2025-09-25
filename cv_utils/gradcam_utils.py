@@ -248,7 +248,7 @@ class GradCam:
     def get_gradcam_images(self,
                             detections,
                             input_container_sas=None,
-                            item_tfms=Resize(750),
+                            item_tfms=Resize(300),
                             batch_size=1,
                             plot_type='gc',
                             path_column='file',

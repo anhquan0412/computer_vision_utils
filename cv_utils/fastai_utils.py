@@ -151,7 +151,7 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
     else:
         seed=None
     
-    _item_tfms = Resize(750)
+    _item_tfms = Resize(300)
     if 'ITEM_RESIZE' in config:
         if isinstance(config['ITEM_RESIZE'],int):
             _item_tfms = Resize(config['ITEM_RESIZE'])
@@ -159,7 +159,7 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
             try:
                 _item_tfms = Resize(int(config['ITEM_RESIZE']))
             except:
-                _item_tfms = Resize(750)            
+                _item_tfms = Resize(300)            
         else:
             _item_tfms = config['ITEM_RESIZE']
 
@@ -394,7 +394,7 @@ def fastai_cv_train_hierarchical(config,df,
     else:
         seed=None
 
-    _item_tfms = Resize(750)
+    _item_tfms = Resize(300)
     if 'ITEM_RESIZE' in config:
         if isinstance(config['ITEM_RESIZE'],int):
             _item_tfms = Resize(config['ITEM_RESIZE'])
@@ -402,7 +402,7 @@ def fastai_cv_train_hierarchical(config,df,
             try:
                 _item_tfms = Resize(int(config['ITEM_RESIZE']))
             except:
-                _item_tfms = Resize(750)            
+                _item_tfms = Resize(300)            
         else:
             _item_tfms = config['ITEM_RESIZE']
     
@@ -627,7 +627,7 @@ class ClassificationInference:
                  label_info, # list of output labels, or the number of labels
                  finetuned_model, # absolute path to classification model that has been finetuned
                  classification_model='tf_efficientnet_b5.ns_jft_in1k', # name of pretrained classification model
-                 item_tfms=Resize(750), # list of item transformations
+                 item_tfms=Resize(300), # list of item transformations
                  aug_tfms=None, # augmentation transformations, needed if TTA is used
                  parent_info=None, # list of parent labels, or nuber of parent labels, needed for hierarchical classification/rollup classification
                  child2parent=None, # dictionary of child to parent mapping, needed for hierarchical classification
@@ -808,7 +808,7 @@ class ClassificationInference:
             loss_func = CrossEntropyLossFlat()
         else:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            loss_func = HierarchicalClassificationLoss(self.parent_info if isinstance(self.parent_info,int) else len(self.parent_info),
+            loss_func = HierarchicalClassificationLoss(parent_count=self.parent_info if isinstance(self.parent_info,int) else len(self.parent_info),
                                                        l1_weight=1,
                                                        l2_weight=2,
                                                        consistency_weight=0,
@@ -819,7 +819,7 @@ class ClassificationInference:
         if use_fp16:
             learner = learner.to_fp16()
 
-        if tta_n>0 and not self.is_hitax:
+        if tta_n>0:
             preds = learner.tta(dl = dls.valid,n=tta_n)[0]
         else:
             preds = learner.get_preds(dl = dls.valid)[0]
