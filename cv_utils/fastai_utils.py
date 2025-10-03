@@ -50,7 +50,8 @@ def get_precision_recall_f1_metrics(label_names,mtype="f1"):
 
 class PILMDImage(PILBase):
     # Blob client variable
-    input_container_client = None
+    azure_client = None
+    container_name = None
 
     @classmethod
     def create(cls, inps, **kwargs):
@@ -60,19 +61,22 @@ class PILMDImage(PILBase):
                 inps = inps[0]
             inps = list(inps)
             inps[0] = download_img(check_and_fix_http_path(inps[0]),
-                                   PILMDImage.input_container_client)
+                                   cls.azure_client,
+                                   cls.container_name)
             img = PILImage.create(inps[0])
             norm_bbox = inps[1]
             img = crop_image(img, norm_bbox, square_crop=True)
             return PILImage.create(img)
 
         inps = download_img(check_and_fix_http_path(inps),
-                            PILMDImage.input_container_client)
+                            cls.azure_client,
+                            cls.container_name)
         return PILImage.create(inps)
 
 # Update PILImageFactory to set the container client
-def PILImageFactory(container_client=None):
-    PILMDImage.input_container_client = container_client
+def PILImageFactory(azure_client=None,container_name="azureml-storage"):
+    PILMDImage.azure_client = azure_client
+    PILMDImage.container_name = container_name
     return PILMDImage
 
 def _get_label_for_plot(x_prob):
@@ -137,7 +141,14 @@ def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     df_show.to_csv(path_prefix + '_val_pred_for_show.csv',index=False)
     print(f'Predictions saved with path prefix {path_prefix}')
 
-def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=False,tta_n=0):
+def fastai_cv_train(config,
+                    df,
+                    aug_tfms=None,
+                    label_names=None,
+                    save_valid_pred=False,
+                    tta_n=0,
+                    azure_client=None,
+                    container_name=None):
     # The first column of df should be the file path, or a tuple of file path and bbox coord
     # The second column is the label (string)
     # There is a column called 'is_val', for train val split (boolean)
@@ -174,7 +185,9 @@ def fastai_cv_train(config,df,aug_tfms=None,label_names=None,save_valid_pred=Fal
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
                                    batch_tfms=aug_tfms,
-                                   n_workers=n_workers
+                                   n_workers=n_workers,
+                                   azure_client=azure_client,
+                                   container_name=container_name
                                   )
         
     if not label_names:
@@ -369,7 +382,9 @@ def fastai_cv_train_hierarchical(config,df,
                                  children_label=None,
                                  concat_label=None,
                                  save_valid_pred=False,
-                                 tta_n=0):
+                                 tta_n=0,
+                                 azure_client=None,
+                                 container_name=None):
     # df should have these columns
     # - file_and_bbox: a tuple/list of (file_path, bbox), or a list of file_path. file_path is relative path
     # - parent_label: the parent label (string)
@@ -418,7 +433,9 @@ def fastai_cv_train_hierarchical(config,df,
                                    bs=config['BATCH_SIZE'],
                                    shuffle=True,
                                    batch_tfms=aug_tfms,
-                                   n_workers=n_workers
+                                   n_workers=n_workers,
+                                   azure_client=azure_client,
+                                   container_name=container_name
                                   )
     # Import and use the new timm-compatible hierarchical model loader
     from .hierarchical_model import load_hier_model_timm
@@ -564,7 +581,7 @@ def prepare_inference_dataloader(inputs, # list of image paths or tuples of (ima
         if input_container_sas is not None:
             input_container_client = ContainerClient.from_container_url(input_container_sas)
 
-        PILImageClass = PILImageFactory(container_client=input_container_client)
+        PILImageClass = PILImageFactory(azure_client=input_container_client)
         # check for imgs that can be opened only
         valid_idxs = list(range(len(inputs)))
         if do_image_check:

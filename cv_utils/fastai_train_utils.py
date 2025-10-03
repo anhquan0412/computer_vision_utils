@@ -27,8 +27,23 @@ class ColMDReader(DisplayedTransform):
         if len(self.cols) == 1: return self._do_one(o, self.cols[0])
         return L(self._do_one(o, c) for c in self.cols)
     
-def ImageDataLoaders_from_df(df, path='.', valid_pct=0.2, seed=None, fn_col=0, folder=None, suff='', label_col=1, label_delim=None,
-            y_block=None, valid_col=None, item_tfms=None, batch_tfms=None, n_workers=None, **kwargs):
+def ImageDataLoaders_from_df(df, 
+                             path='.', 
+                             valid_pct=0.2, 
+                             seed=None, 
+                             fn_col=0, 
+                             folder=None, 
+                             suff='', 
+                             label_col=1, 
+                             label_delim=None,
+                             y_block=None, 
+                             valid_col=None, 
+                             item_tfms=None, 
+                             batch_tfms=None, 
+                             n_workers=None, 
+                             azure_client=None,
+                             container_name=None,
+                             **kwargs):
     "Create from `df` in `path` using `fn_col` and `label_col`"
     pref = f'{Path(path) if folder is None else Path(path)/folder}{os.path.sep}'
     
@@ -36,8 +51,12 @@ def ImageDataLoaders_from_df(df, path='.', valid_pct=0.2, seed=None, fn_col=0, f
         is_multi = (is_listy(label_col) and len(label_col) > 1) or label_delim is not None
         y_block = MultiCategoryBlock if is_multi else CategoryBlock
     splitter = RandomSplitter(valid_pct, seed=seed) if valid_col is None else ColSplitter(valid_col)
-
-    PILImageClass = PILImageFactory()
+    if azure_client is not None:
+        if container_name is None:
+            raise ValueError("container_name is required when azure_client is provided")
+        PILImageClass = PILImageFactory(azure_client=azure_client,container_name=container_name)
+    else:
+        PILImageClass = PILImageFactory()
     col_reader = ColMDReader(fn_col, pref=pref, suff=suff)
 
     # check, if df[fn_col] also contains bbox, then each bbox must be tuple of float instead of str

@@ -13,6 +13,7 @@ import logging
 import collections
 from datetime import timedelta, datetime
 from pathlib import Path
+from azure.storage.blob import ContainerClient, BlobServiceClient
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 azure_logger = logging.getLogger("azure.core.pipeline.policies")
@@ -46,12 +47,36 @@ def load_image_general(input_file: Union[str, BytesIO]) -> Image.Image:
     image.load()
     return image
 
-def download_img(img_file,input_container_client,ignore_exif_rotation=True,load_img=True):
+def download_img(img_file: str,
+                 azure_client: Optional[Union[ContainerClient, BlobServiceClient]] = None,
+                 container_name: str = "azureml-storage",
+                 ignore_exif_rotation: bool = True,
+                 load_img: bool = True) -> Image.Image:
+    """
+    Download and load an image from various sources.
+    
+    Args:
+        img_file: Image file path/name or URL
+        azure_client: ContainerClient or BlobServiceClient for Azure blob access
+        container_name: Container name (only used with BlobServiceClient)
+        ignore_exif_rotation: Whether to ignore EXIF rotation data
+        load_img: Whether to load the image into memory
+        
+    Returns:
+        PIL Image object
+    """
     use_url = img_file.startswith(('http://', 'https://'))
-    if not use_url and input_container_client is not None:
-        img_bytes = input_container_client.download_blob(img_file).readall()
-        img_file = io.BytesIO(img_bytes)
-
+    if not use_url and azure_client is not None:
+        if isinstance(azure_client, ContainerClient):
+            blob_data = azure_client.download_blob(img_file).readall()
+        elif isinstance(azure_client,BlobServiceClient):
+            blob_data = azure_client.get_blob_client(
+                    container=container_name,
+                    blob=img_file).download_blob().readall()
+        else:
+            raise TypeError(f"Unsupported azure_client type: {type(azure_client)}")
+        
+        img_file = io.BytesIO(blob_data)
     img = md_viz.open_image(img_file,ignore_exif_rotation=ignore_exif_rotation)
     if load_img:
         img.load()
