@@ -19,6 +19,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 azure_logger = logging.getLogger("azure.core.pipeline.policies")
 azure_logger.setLevel(logging.WARNING)
 
+# Silence Azure credential authentication logs
+azure_identity_logger = logging.getLogger("azure.identity")
+azure_identity_logger.setLevel(logging.WARNING)
+azureml_credential_logger = logging.getLogger("azure.identity._internal.managed_identity")
+azureml_credential_logger.setLevel(logging.WARNING)
+
 
 def load_local_image(img_path: str |  BinaryIO) -> Optional[Image.Image]:
     """Attempts to load an image from a local path."""
