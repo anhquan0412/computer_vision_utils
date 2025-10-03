@@ -85,6 +85,8 @@ def _get_label_for_plot(x_prob):
 
 def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     path_prefix = str(path_prefix)
+    # change num_workers of valid dataloader to 0
+    learner.dls.valid.num_workers = 0
     if tta_n>0:
         val_probs,val_true = learner.tta(n=tta_n)
         val_pred = val_probs.max(axis=1)[1]
