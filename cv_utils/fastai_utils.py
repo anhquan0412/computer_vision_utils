@@ -14,6 +14,7 @@ from .hierarchical_model import HierarchicalClassificationLoss,get_precision_rec
 from .hierarchical_rollup import precompute_rollup_maps_dynamic, rollup_predictions_dynamic
 from .viz_utils import clas_report_compact,plot_classification_report
 import timm
+import time
 from multiprocessing import cpu_count
 
 def bold_print(txt):
@@ -83,14 +84,42 @@ def _get_label_for_plot(x_prob):
         x_sort = x_prob.iloc[x_prob.argsort()[::-1][:2]] # get the top 2 probabilities and predictions. Note: hardcode
         return np.array([x_sort,x_sort.index]).flatten()
 
+def _safe_tta(learner, tta_n, dl=None, max_retries=3):
+    """
+    Safely perform TTA with retry logic to handle intermittent SSL/network errors.
+    
+    Args:
+        learner: Fastai learner object
+        tta_n: Number of TTA augmentations
+        dl: DataLoader to use (if None, uses learner's default)
+        max_retries: Maximum number of retry attempts (default: 3)
+    
+    Returns:
+        Predictions from TTA or standard prediction if all retries fail
+    """
+    for attempt in range(max_retries):
+        try:
+            if dl is None:
+                return learner.tta(n=tta_n)
+            else:
+                return learner.tta(dl=dl, n=tta_n)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                print(f"TTA attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"TTA failed after {max_retries} attempts: {e}. Falling back to standard prediction.")
+                if dl is None:
+                    return learner.get_preds(with_decoded=True, with_preds=True, with_input=False)
+                else:
+                    return learner.get_preds(dl=dl)
+
 def fastai_predict_val(learner,label_names,path_prefix,df_val=None,tta_n=2):
     path_prefix = str(path_prefix)
-    # change num_workers of  dataloader to 0
-    # learner.dls.fake_l.num_workers=0
-    # learner.dls.train.fake_l.num_workers=0
-    # learner.dls.valid.fake_l.num_workers=0
+
     if tta_n>0:
-        val_probs,val_true = learner.tta(n=tta_n)
+        val_probs,val_true = _safe_tta(learner, tta_n)
         val_pred = val_probs.max(axis=1)[1]
     else:
         val_probs,val_true,val_pred = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
@@ -295,14 +324,9 @@ def fastai_hier_predict_val(learner,
                             df_val=None,
                             tta_n=2):
     path_prefix = str(path_prefix)
-    
-    # change num_workers of dataloader to 0
-    # learner.dls.fake_l.num_workers=0
-    # learner.dls.train.fake_l.num_workers=0
-    # learner.dls.valid.fake_l.num_workers=0
-    
+
     if tta_n>0:
-        val_probs,val_true = learner.tta(n=tta_n)
+        val_probs,val_true = _safe_tta(learner, tta_n)
     else:
         val_probs,val_true,_ = learner.get_preds(with_decoded=True,with_preds=True,with_input=False)
 
@@ -846,7 +870,7 @@ class ClassificationInference:
             learner = learner.to_fp16()
 
         if tta_n>0:
-            preds = learner.tta(dl = dls.valid,n=tta_n)[0]
+            preds = _safe_tta(learner, tta_n, dl=dls.valid)[0]
         else:
             preds = learner.get_preds(dl = dls.valid)[0]
 
