@@ -115,7 +115,7 @@ def _create_detections(df,class_threshold=0):
 def df_to_mdv5_classification_json(df,class_threshold=0.3,n_workers=None):
     df = df.dropna(subset='file')
     if n_workers==1:
-        return df.groupby('file').apply(_create_detections,class_threshold=class_threshold)
+        return df.groupby('file').apply(_create_detections,class_threshold=class_threshold).tolist()
     return dataframe_apply_parallel(df.groupby('file'), partial(_create_detections,class_threshold=class_threshold),n_workers=n_workers)
 
 def get_bbox_count_and_conf_rank(df,filter_cat=[]):
