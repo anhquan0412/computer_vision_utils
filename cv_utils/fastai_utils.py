@@ -81,8 +81,8 @@ def PILImageFactory(azure_client=None,container_name="azureml-storage"):
     return PILMDImage
 
 def _get_label_for_plot(x_prob):
-        x_sort = x_prob.iloc[x_prob.argsort()[::-1][:2]] # get the top 2 probabilities and predictions. Note: hardcode
-        return np.array([x_sort,x_sort.index]).flatten()
+    x_sort = x_prob.iloc[x_prob.argsort()[::-1][:2]] # get the top 2 probabilities and predictions. Note: hardcode
+    return np.array([x_sort,x_sort.index]).flatten()
 
 def _safe_tta(learner, tta_n, dl=None, max_retries=3):
     """
