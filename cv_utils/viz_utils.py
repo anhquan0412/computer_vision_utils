@@ -121,7 +121,7 @@ def plot_confusion_matrix(cm,label_names=None,fontsize=8,figsize=(12, 12),save_p
         plt.show()
 
 
-def visualize_images(image_paths, labels=None, bboxes=None, figsize=(10, 10), fontsize=8, square_crop=False):
+def visualize_images(image_paths, labels=None, bboxes=None, figsize=(10, 10), fontsize=8, square_crop=False, return_fig=False):
     # Determine grid size based on the number of images
     if isinstance(image_paths,(pd.Series,np.ndarray)):
         image_paths = image_paths.tolist()
@@ -167,4 +167,8 @@ def visualize_images(image_paths, labels=None, bboxes=None, figsize=(10, 10), fo
     
     # Display the plot
     plt.tight_layout()
-    plt.show()
+    
+    if return_fig:
+        return fig
+    else:
+        plt.show()
